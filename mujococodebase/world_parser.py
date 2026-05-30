@@ -101,6 +101,9 @@ class WorldParser:
                         global_orientation_quat=robot.global_orientation_quat
                     )
                     world.is_ball_pos_updated = True
+                    
+                    # Update Kalman Filter with raw measurement
+                    world.ball_filter.update(world.ball_pos.reshape(3, 1))
                 
                 elif obj_type == "P":
                     

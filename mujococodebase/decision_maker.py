@@ -6,6 +6,7 @@ import numpy as np
 from mujococodebase.utils.math_ops import MathOps
 from mujococodebase.world.field import FIFAField, HLAdultField
 from mujococodebase.world.play_mode import PlayModeEnum, PlayModeGroupEnum
+from mujococodebase.navigation.potential_field import PotentialFieldPlanner
 
 
 logger = logging.getLogger()
@@ -51,6 +52,14 @@ class DecisionMaker:
 
         self.agent: Agent = agent
         self.is_getting_up: bool = False
+        self.ball_lost_timer: int = 0
+        
+        # Path Planner using Potential Fields
+        self.planner = PotentialFieldPlanner(
+            k_attractive=1.0, 
+            k_repulsive=2.0, 
+            rho_zero=2.0
+        )
 
     def update_current_behavior(self) -> None:
         """
@@ -59,6 +68,10 @@ class DecisionMaker:
         This function checks the game state and decides which behavior
         or skill should be executed next.
         """
+        if self.agent.world.is_ball_pos_updated:
+            self.ball_lost_timer = 0
+        else:
+            self.ball_lost_timer += 1
 
         if self.agent.world.playmode is PlayModeEnum.GAME_OVER:
             return
@@ -84,12 +97,43 @@ class DecisionMaker:
 
         self.agent.robot.commit_motor_targets_pd()
 
+    def get_obstacles(self):
+        """Returns a list of 2D positions of all other robots."""
+        obstacles = []
+        # Opponents
+        for p in self.agent.world.their_team_players:
+            if p.last_seen_time and (self.agent.world.server_time - p.last_seen_time < 2.0):
+                obstacles.append(p.position[:2])
+        # Teammates
+        for i, p in enumerate(self.agent.world.our_team_players):
+            if (i + 1) != self.agent.world.number: # Don't avoid yourself
+                if p.last_seen_time and (self.agent.world.server_time - p.last_seen_time < 2.0):
+                    obstacles.append(p.position[:2])
+        return obstacles
+
     def carry_ball(self):
         """
         Basic example of a behavior: moves the robot toward the goal while handling the ball.
         """
+        dist_to_ball = np.linalg.norm(self.agent.world.ball_pos_filtered[:2] - self.agent.world.global_position[:2])
+        
+        # Only search if ball is lost for more than 10 frames (~0.2s)
+        # AND we are not very close to it (if we are close, we assume it's under our chin)
+        if self.ball_lost_timer > 10 and dist_to_ball > 0.5:
+            # If the ball is not visible, spin in place to find it
+            current_yaw = self.agent.robot.global_orientation_euler[2]
+            search_orientation = MathOps.normalize_deg(current_yaw + 30)
+            
+            self.agent.skills_manager.execute(
+                "Walk",
+                target_2d=self.agent.world.global_position[:2],
+                is_target_absolute=True,
+                orientation=search_orientation
+            )
+            return
+
         their_goal_pos = self.agent.world.field.get_their_goal_position()[:2]
-        ball_pos = self.agent.world.ball_pos[:2]
+        ball_pos = self.agent.world.ball_pos_filtered[:2]
         my_pos = self.agent.world.global_position[:2]
 
         ball_to_goal = their_goal_pos - ball_pos
@@ -98,7 +142,8 @@ class DecisionMaker:
             return 
         ball_to_goal_dir = ball_to_goal / bg_norm
 
-        dist_from_ball_to_start_carrying = 0.30
+        # Fine-tuned parameters
+        dist_from_ball_to_start_carrying = 0.25
         carry_ball_pos = ball_pos - ball_to_goal_dir * dist_from_ball_to_start_carrying
 
         my_to_ball = ball_pos - my_pos
@@ -112,23 +157,42 @@ class DecisionMaker:
         cosang = np.clip(cosang, -1.0, 1.0)
         angle_diff = np.arccos(cosang)
 
-        ANGLE_TOL = np.deg2rad(7.5)
+        ANGLE_TOL = np.deg2rad(5.0)
         aligned = (my_to_ball_norm > 1e-6) and (angle_diff <= ANGLE_TOL)
 
         behind_ball = np.dot(my_pos - ball_pos, ball_to_goal_dir) < 0
         desired_orientation = MathOps.vector_angle(ball_to_goal)
 
+        # Get obstacles for potential field planning
+        obstacles = self.get_obstacles()
+
         if not aligned or not behind_ball:
+            # Navigate to the preparation point using Potential Fields
+            next_target = self.planner.get_next_step(
+                current_pos=my_pos,
+                goal_pos=carry_ball_pos,
+                obstacles=obstacles,
+                step_size=0.5
+            )
+            
             self.agent.skills_manager.execute(
                 "Walk",
-                target_2d=carry_ball_pos,
+                target_2d=next_target,
                 is_target_absolute=True,
-                orientation=None if np.linalg.norm(my_pos - carry_ball_pos) > 2 else desired_orientation
+                orientation=desired_orientation
             )
         else:
+            # PUSH: Target the goal directly, but still avoid obstacles if necessary
+            next_target = self.planner.get_next_step(
+                current_pos=my_pos,
+                goal_pos=their_goal_pos,
+                obstacles=obstacles,
+                step_size=0.5
+            )
+            
             self.agent.skills_manager.execute(
                 "Walk",
-                target_2d=their_goal_pos,
+                target_2d=next_target,
                 is_target_absolute=True,
                 orientation=desired_orientation
             )

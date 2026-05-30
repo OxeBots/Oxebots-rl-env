@@ -3,6 +3,7 @@ import numpy as np
 from mujococodebase.world.other_robot import OtherRobot
 from mujococodebase.world.field import FIFAField, HLAdultField
 from mujococodebase.world.play_mode import PlayModeEnum, PlayModeGroupEnum
+from mujococodebase.utils.filters.kalman import KalmanFilter
 
 class World:
     """
@@ -11,7 +12,7 @@ class World:
     """
 
     MAX_PLAYERS_PER_TEAM = 11
-    
+
     def __init__(self, agent, team_name: str, number: int, field_name: str):
         """
         Initializes the world state.
@@ -23,7 +24,7 @@ class World:
             field_name (str): The name of the field to initialize
                               (e.g., 'fifa' or 'hl_adult').
         """
-        
+
         from mujococodebase.agent import Agent  # type hinting
 
         self.agent: Agent = agent
@@ -41,10 +42,32 @@ class World:
         self._global_cheat_position: np.ndarray = np.zeros(3)
         self.global_position: np.ndarray = np.zeros(3)
         self.ball_pos: np.ndarray = np.zeros(3)
+        self.ball_pos_filtered: np.ndarray = np.zeros(3)
         self.is_ball_pos_updated: bool = False
         self.our_team_players: list[OtherRobot] = [OtherRobot() for _ in range(self.MAX_PLAYERS_PER_TEAM)]
         self.their_team_players: list[OtherRobot] = [OtherRobot(is_teammate=False) for _ in range(self.MAX_PLAYERS_PER_TEAM)]
         self.field: Field = self.__initialize_field(field_name=field_name)
+
+        # Kalman Filter for the ball: State is [x, y, z, vx, vy, vz]
+        dt = 0.02 # 20ms simulation step
+        self.ball_filter = KalmanFilter(dt=dt, state_dim=6, obs_dim=3)
+        # Transition matrix F (Constant velocity model)
+        self.ball_filter.F = np.array([
+            [1, 0, 0, dt, 0, 0],
+            [0, 1, 0, 0, dt, 0],
+            [0, 0, 1, 0, 0, dt],
+            [0, 0, 0, 1, 0, 0],
+            [0, 0, 0, 0, 1, 0],
+            [0, 0, 0, 0, 0, 1]
+        ])
+        # Measurement matrix H (We only measure x, y, z)
+        self.ball_filter.H = np.array([
+            [1, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0]
+        ])
+        # Initial state
+        self.ball_filter.x = np.zeros((6, 1))
 
     def update(self) -> None:
         """
@@ -54,9 +77,13 @@ class World:
             playmode=self.playmode, is_left_team=self.is_left_team
         )
 
+        # Always predict ball position in each step
+        prediction = self.ball_filter.predict()
+        self.ball_pos_filtered = prediction[:3].flatten()
+
     def is_fallen(self) -> bool:
         return self.global_position[2] < 0.3
-    
+
     def __initialize_field(self, field_name: str) -> Field:
         if field_name in ('hl_adult', 'hl_adult_2020', 'hl_adult_2019',):
             return HLAdultField(world=self)
