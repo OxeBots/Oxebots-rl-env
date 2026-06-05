@@ -5,7 +5,7 @@ class PotentialFieldPlanner:
     Path planning using Artificial Potential Fields.
     Objects exert attractive (goal) or repulsive (obstacles) forces.
     """
-    def __init__(self, k_attractive=1.0, k_repulsive=5.0, rho_zero=1.5):
+    def __init__(self, k_attractive=1.0, k_repulsive=0.0, rho_zero=1.5):
         self.k_attractive = k_attractive
         self.k_repulsive = k_repulsive
         self.rho_zero = rho_zero # Distance of influence of obstacles

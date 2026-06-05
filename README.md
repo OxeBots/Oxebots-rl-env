@@ -50,6 +50,13 @@ Using **Poetry**:
 poetry run python run_player.py -n <player-number> -t <team-name>
 ```
 
+### Check for Syntax Errors
+Before running the simulation, it is recommended to check your code for syntax errors, especially after making manual changes:
+
+```bash
+python3 -m compileall mujococodebase/
+```
+
 CLI parameter (a usage help is also available):
 
 - `--host <ip>` to specify the host IP (default: 'localhost')
