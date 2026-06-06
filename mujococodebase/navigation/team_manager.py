@@ -79,12 +79,12 @@ class TeamManager:
         self.is_currently_going_to_ball = True
         return True
 
-    def get_strategic_position(self) -> np.ndarray:
+    def get_strategic_position(self) -> np.ndarray: #dar uma olhada 
         """
         Returns a target position when the robot is NOT going for the ball.
         """
         world = self.agent.world
-        ball_pos = world.ball_pos_filtered[:2]
+        ball_pos = world.ball_pos_filtered[:2]# acho q errei
         field_len = world.field.get_length()
         field_wid = world.field.get_width()
 
@@ -93,7 +93,7 @@ class TeamManager:
             goal_pos = world.field.get_our_goal_position()
             return np.array([goal_pos[0] + 1.0, 0.0])
 
-        elif self.role == Role.DEFENDER:
+        elif self.role == Role.DEFENDER: #melhorar para os dois lados 
             # Defenders stay at the edge of the penalty area or following the ball's Y
             target_x = -field_len/3  # Fixed defensive line
             target_y = np.clip(ball_pos[1], -field_wid/4, field_wid/4)
@@ -106,7 +106,7 @@ class TeamManager:
 
         else: # ATTACKER
             # Spread out in the attack, but stay behind the ball if it's too far
-            target_x = max(0.0, ball_pos[0] - 5.0)
+            target_x = max(0.0, ball_pos[0] - 5.0) 
             
             # Different positions for attackers
             offsets = {

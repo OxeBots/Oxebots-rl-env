@@ -11,3 +11,4 @@ poetry.toml
 *.spec
 dist/
 venv/
+

@@ -57,8 +57,8 @@ class DecisionMaker:
         
         # Path Planner using Potential Fields
         self.planner = PotentialFieldPlanner(
-            k_attractive=1.0, 
-            k_repulsive=2.0, 
+            k_attractive=2.0, 
+            k_repulsive=0.0, 
             rho_zero=2.0
         )
         self.team_manager = TeamManager(agent)
