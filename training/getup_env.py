@@ -144,46 +144,54 @@ class GetUpBackEnv(GetUpEnv):
         contact_info = obs[-8:]
         torso_height = self.data.body('torso').xpos[2]
         torso_up = self.data.body('torso').xmat[8]
+        # Pegar a velocidade Z do tronco ajuda a recompensar o *movimento* de subida
+        torso_z_vel = self.data.qvel[2] 
         
         reward = 0.0
+        
+        # 1. Altura e Postura: Recompensa exponencial
+        # Em vez de dar pontos lineares, fazemos a recompensa explodir só quando ele realmente chega perto de ficar em pé.
         if torso_height > 0.30:
-            reward += (torso_height - 0.30) * 500.0 * max(0, torso_up)
+            # Usando uma curva exponencial para desencorajar ficar no meio do caminho
+            height_progress = (torso_height - 0.30) / (0.65 - 0.30) # Normalizado de 0 a 1
+            reward += (height_progress ** 3) * 100.0 * max(0, torso_up)
 
-        # 1. SHAPING: Pé Plano (Vital para tração)
-        # Se os pés estão tocando o chão, recompensa o alinhamento Z (pé reto)
+        # 2. Shaping: Pé Plano
         l_foot_up = self.data.body('left_foot_link').xmat[8]
         r_foot_up = self.data.body('right_foot_link').xmat[8]
-        if contact_info[2] > 0: reward += l_foot_up * 15.0
-        if contact_info[3] > 0: reward += r_foot_up * 15.0
+        if contact_info[2] > 0: reward += l_foot_up * 5.0 # Reduzi um pouco para não ser exploitável
+        if contact_info[3] > 0: reward += r_foot_up * 5.0
 
-        # Shaping pernas encolhidas
-        l_knee = self.data.qpos[self.l_knee_idx]
-        r_knee = self.data.qpos[self.r_knee_idx]
-        if torso_height < 0.45:
-            reward += (-l_knee - 0.5) * 10.0 if l_knee < -0.5 else 0
-            reward += (-r_knee - 0.5) * 10.0 if r_knee < -0.5 else 0
-
-        # Impulso de braços
+        # 3. Impulso de braços APENAS se estiver subindo
+        # Agora ele só ganha os 30 pontos se o braço estiver no chão E ele estiver ganhando altura (velocidade positiva)
         if torso_height < 0.50 and (contact_info[0] > 0 or contact_info[1] > 0):
-            reward += 30.0
+            if torso_z_vel > 0.1: # Exige velocidade de subida
+                reward += 10.0
 
-        # Estabilização Pose Neutra
-        if torso_height > 0.60 and torso_up > 0.8:
-            current_joints = self.data.qpos[7:]
-            target_joints = np.zeros_like(current_joints)
-            target_joints[self.l_shoulder_roll_idx - 7] = -1.57
-            target_joints[self.r_shoulder_roll_idx - 7] = 1.57
-            error = np.sum(np.square(current_joints - target_joints))
-            reward += 150.0 * np.exp(-error)
+        # 4. Puxar os pés para perto do centro de massa (Evitar espacate da foto)
+        # Opcional, mas muito útil: penalizar se os pés estiverem muito longe do tronco no eixo X/Y
+        torso_xy = self.data.body('torso').xpos[:2]
+        l_foot_xy = self.data.body('left_foot_link').xpos[:2]
+        r_foot_xy = self.data.body('right_foot_link').xpos[:2]
+        dist_l_foot = np.linalg.norm(torso_xy - l_foot_xy)
+        dist_r_foot = np.linalg.norm(torso_xy - r_foot_xy)
+        # Penaliza levemente se os pés estiverem muito espalhados
+        reward -= (dist_l_foot + dist_r_foot) * 2.0 
 
-        reward -= 0.01 * np.sum(np.square(action))
+        # Penalidades de ação
+        reward -= 0.05 * np.sum(np.square(action)) # Aumentei um pouco para evitar movimentos bruscos
         if hasattr(self, 'prev_action'):
             reward -= 0.05 * np.sum(np.square(action - self.prev_action))
         self.prev_action = action.copy()
 
+        # Condição de Vitória MANTIDA
         if torso_height > 0.65 and torso_up > 0.9:
-            reward += 2000.0 # Aumentado
-        reward -= 0.5
+            reward += 2000.0 
+            
+        # Penalidade de Sobrevivência AUMENTADA
+        # A penalidade tem que ser maior que qualquer recompensa "fácil" que ele consiga farmar parado.
+        reward -= 2.0 
+        
         return reward
 
 class GetUpFrontEnv(GetUpEnv):
