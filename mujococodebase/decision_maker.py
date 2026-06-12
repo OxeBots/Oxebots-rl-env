@@ -119,7 +119,7 @@ class DecisionMaker:
         
         # Only search if ball is lost for more than 10 frames (~0.2s)
         # AND we are not very close to it (if we are close, we assume it's under our chin)
-        if self.ball_lost_timer > 10 and dist_to_ball > 0.5:
+        if self.ball_lost_timer > 10 and dist_to_ball > 0.75:
             # If the ball is not visible, spin in place to find it
             current_yaw = self.agent.robot.global_orientation_euler[2]
             search_orientation = MathOps.normalize_deg(current_yaw + 30)
@@ -130,6 +130,7 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=search_orientation
             )
+            self.agent.robot.set_motor_target_position("he2", 0, kp=20, kd=0.1)
             return
 
         their_goal_pos = self.agent.world.field.get_their_goal_position()[:2]
@@ -141,6 +142,11 @@ class DecisionMaker:
         if bg_norm == 0:
             return 
         ball_to_goal_dir = ball_to_goal / bg_norm
+
+        # Calculate target pitch to look at the ball
+        camera_height = 0.5
+        target_pitch = np.rad2deg(np.arctan2(camera_height, max(dist_to_ball, 0.1)))
+        target_pitch = np.clip(target_pitch, 0, 60)
 
         # Fine-tuned parameters
         dist_from_ball_to_start_carrying = 0.25
@@ -181,6 +187,7 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation
             )
+            self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
         else:
             # PUSH: Target the goal directly, but still avoid obstacles if necessary
             next_target = self.planner.get_next_step(
@@ -196,4 +203,5 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation
             )
+            self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
 
