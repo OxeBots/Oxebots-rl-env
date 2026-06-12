@@ -1,13 +1,13 @@
-from dataclasses import Field
 import logging
+from dataclasses import Field
 from typing import Mapping
 
 import numpy as np
+
+from mujococodebase.navigation.potential_field import PotentialFieldPlanner
 from mujococodebase.utils.math_ops import MathOps
 from mujococodebase.world.field import FIFAField, HLAdultField
 from mujococodebase.world.play_mode import PlayModeEnum, PlayModeGroupEnum
-from mujococodebase.navigation.potential_field import PotentialFieldPlanner
-
 
 logger = logging.getLogger()
 
@@ -20,7 +20,7 @@ class DecisionMaker:
     based on the current state of the world and game conditions.
     """
 
-    BEAM_POSES: Mapping[type[Field], Mapping[int, tuple[float, float, float]]] ={
+    BEAM_POSES: Mapping[type[Field], Mapping[int, tuple[float, float, float]]] = {
         FIFAField: {
             1: (2.1, 0, 0),
             2: (22.0, 12.0, 0),
@@ -38,8 +38,8 @@ class DecisionMaker:
             1: (7.0, 0.0, 0),
             2: (2.0, -1.5, 0),
             3: (2.0, 1.5, 0),
-        }
-    } 
+        },
+    }
 
     def __init__(self, agent):
         """
@@ -53,12 +53,10 @@ class DecisionMaker:
         self.agent: Agent = agent
         self.is_getting_up: bool = False
         self.ball_lost_timer: int = 0
-        
+
         # Path Planner using Potential Fields
         self.planner = PotentialFieldPlanner(
-            k_attractive=1.0, 
-            k_repulsive=2.0, 
-            rho_zero=2.0
+            k_attractive=1.0, k_repulsive=2.0, rho_zero=2.0
         )
 
     def update_current_behavior(self) -> None:
@@ -81,16 +79,26 @@ class DecisionMaker:
             PlayModeGroupEnum.PASSIVE_BEAM,
         ):
             self.agent.server.commit_beam(
-                pos2d=self.BEAM_POSES[type(self.agent.world.field)][self.agent.world.number][:2],
-                rotation=self.BEAM_POSES[type(self.agent.world.field)][self.agent.world.number][2],
+                pos2d=self.BEAM_POSES[type(self.agent.world.field)][
+                    self.agent.world.number
+                ][:2],
+                rotation=self.BEAM_POSES[type(self.agent.world.field)][
+                    self.agent.world.number
+                ][2],
             )
 
         if self.is_getting_up or self.agent.skills_manager.is_ready(skill_name="GetUp"):
-            self.is_getting_up = not self.agent.skills_manager.execute(skill_name="GetUp")
+            self.is_getting_up = not self.agent.skills_manager.execute(
+                skill_name="GetUp"
+            )
 
         elif self.agent.world.playmode is PlayModeEnum.PLAY_ON:
             self.carry_ball()
-        elif self.agent.world.playmode in (PlayModeEnum.BEFORE_KICK_OFF, PlayModeEnum.THEIR_GOAL, PlayModeEnum.OUR_GOAL):
+        elif self.agent.world.playmode in (
+            PlayModeEnum.BEFORE_KICK_OFF,
+            PlayModeEnum.THEIR_GOAL,
+            PlayModeEnum.OUR_GOAL,
+        ):
             self.agent.skills_manager.execute("Neutral")
         else:
             self.carry_ball()
@@ -102,12 +110,16 @@ class DecisionMaker:
         obstacles = []
         # Opponents
         for p in self.agent.world.their_team_players:
-            if p.last_seen_time and (self.agent.world.server_time - p.last_seen_time < 2.0):
+            if p.last_seen_time and (
+                self.agent.world.server_time - p.last_seen_time < 2.0
+            ):
                 obstacles.append(p.position[:2])
         # Teammates
         for i, p in enumerate(self.agent.world.our_team_players):
-            if (i + 1) != self.agent.world.number: # Don't avoid yourself
-                if p.last_seen_time and (self.agent.world.server_time - p.last_seen_time < 2.0):
+            if (i + 1) != self.agent.world.number:  # Don't avoid yourself
+                if p.last_seen_time and (
+                    self.agent.world.server_time - p.last_seen_time < 2.0
+                ):
                     obstacles.append(p.position[:2])
         return obstacles
 
@@ -115,20 +127,23 @@ class DecisionMaker:
         """
         Basic example of a behavior: moves the robot toward the goal while handling the ball.
         """
-        dist_to_ball = np.linalg.norm(self.agent.world.ball_pos_filtered[:2] - self.agent.world.global_position[:2])
-        
+        dist_to_ball = np.linalg.norm(
+            self.agent.world.ball_pos_filtered[:2]
+            - self.agent.world.global_position[:2]
+        )
+
         # Only search if ball is lost for more than 10 frames (~0.2s)
         # AND we are not very close to it (if we are close, we assume it's under our chin)
-        if self.ball_lost_timer > 10 and dist_to_ball > 0.5:
+        if self.ball_lost_timer > 10 and dist_to_ball > 1:
             # If the ball is not visible, spin in place to find it
             current_yaw = self.agent.robot.global_orientation_euler[2]
             search_orientation = MathOps.normalize_deg(current_yaw + 30)
-            
+
             self.agent.skills_manager.execute(
                 "Walk",
                 target_2d=self.agent.world.global_position[:2],
                 is_target_absolute=True,
-                orientation=search_orientation
+                orientation=search_orientation,
             )
             return
 
@@ -139,7 +154,7 @@ class DecisionMaker:
         ball_to_goal = their_goal_pos - ball_pos
         bg_norm = np.linalg.norm(ball_to_goal)
         if bg_norm == 0:
-            return 
+            return
         ball_to_goal_dir = ball_to_goal / bg_norm
 
         # Fine-tuned parameters
@@ -172,14 +187,14 @@ class DecisionMaker:
                 current_pos=my_pos,
                 goal_pos=carry_ball_pos,
                 obstacles=obstacles,
-                step_size=0.5
+                step_size=0.5,
             )
-            
+
             self.agent.skills_manager.execute(
                 "Walk",
                 target_2d=next_target,
                 is_target_absolute=True,
-                orientation=desired_orientation
+                orientation=desired_orientation,
             )
         else:
             # PUSH: Target the goal directly, but still avoid obstacles if necessary
@@ -187,13 +202,12 @@ class DecisionMaker:
                 current_pos=my_pos,
                 goal_pos=their_goal_pos,
                 obstacles=obstacles,
-                step_size=0.5
+                step_size=0.5,
             )
-            
+
             self.agent.skills_manager.execute(
                 "Walk",
                 target_2d=next_target,
                 is_target_absolute=True,
-                orientation=desired_orientation
+                orientation=desired_orientation,
             )
-
