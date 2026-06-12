@@ -2,7 +2,21 @@
 
 Este guia descreve o novo sistema de treinamento especializado para o robô T1, focado em manobras separadas de levantar de frente e de costas.
 
-## 1. Estrutura de Treinamento
+## 1. Dependências
+
+Para rodar o treinamento, você precisará instalar as seguintes bibliotecas:
+
+```bash
+pip install gymnasium stable-baselines3[extra] mujoco numpy tensorboard scipy pyyaml
+```
+
+Ou, se preferir usar o arquivo de requirements:
+
+```bash
+pip install -r training/requirements.txt
+```
+
+## 2. Estrutura de Treinamento
 
 O treinamento agora é dividido em dois modos independentes para evitar interferência de aprendizado:
 
