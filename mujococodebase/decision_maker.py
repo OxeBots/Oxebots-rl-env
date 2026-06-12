@@ -163,6 +163,7 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=search_orientation
             )
+            self.agent.robot.set_motor_target_position("he2", 0, kp=20, kd=0.1)
             return
 
         their_goal_pos = self.agent.world.field.get_their_goal_position()[:2]
@@ -174,6 +175,11 @@ class DecisionMaker:
         if bg_norm == 0:
             return 
         ball_to_goal_dir = ball_to_goal / bg_norm
+
+        # Calculate target pitch to look at the ball
+        camera_height = 0.5
+        target_pitch = np.rad2deg(np.arctan2(camera_height, max(dist_to_ball, 0.1)))
+        target_pitch = np.clip(target_pitch, 0, 60)
 
         # Fine-tuned parameters
         dist_from_ball_to_start_carrying = 0.2
@@ -226,6 +232,7 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation
             )
+            self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
         else:
             # PUSH: Target the goal directly
             next_target = self.planner.get_next_step(
@@ -241,3 +248,4 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation
             )
+            self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
