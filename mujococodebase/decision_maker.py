@@ -1,7 +1,8 @@
 from dataclasses import Field
 import logging
 from typing import Mapping
-
+import time
+from math import hypot
 import numpy as np
 from mujococodebase.utils.math_ops import MathOps
 from mujococodebase.world.field import FIFAField, HLAdultField
@@ -42,6 +43,36 @@ class DecisionMaker:
     } 
 
     def __init__(self, agent):
+        now = time.time()   
+        self.agent = agent
+        world = self.agent.world
+       #aq eu criei coloquei o mundo na variavel
+
+        if world.is_ball_pos_updated:
+            x,y = world.ball_pos[:2]
+            send = False;
+            
+            min_dist = 0.2
+            min_time = 0.5
+            last_pos = getattr(self, "last_ball_pos", None)
+            last_time = getattr(self, "last_ball_pos_time", None)
+
+            if last_pos is None:
+                send = True
+            else:
+                dist = hypot(x - last_pos[0], y - last_pos[1])
+                if dist >= min_dist:
+                    send = True
+                elif last_time is not None and (now - last_time) >= min_time:
+                    send = True
+            if send:
+                mensagem  = f"B:{x:.3f}, {y:.3f} {now:.3f} {self.agent.world.number:.3f}"
+                self.agent.server.send_team_message(mensagem)
+                self._last_ball_sent_time = now
+                self._last_ball_sent_pos = (x, y)
+
+
+
         """
         Creates a new DecisionMaker linked to the given agent.
 

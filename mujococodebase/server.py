@@ -104,3 +104,13 @@ class Server:
     def commit_beam(self, pos2d: list, rotation: float) -> None:
         assert len(pos2d) == 2
         self.commit(f"(beam {pos2d[0]} {pos2d[1]} {rotation})")
+
+    def send_team_message(self, msg: str) -> None:
+        """
+        Manda mensagem para o resto do time.
+
+        Args:
+            Formata a mensagem, e envia imediatamente.
+        """
+        formatted_msg = f"(team_message (ball_pos {msg}))"
+        self.send_immediate(formatted_msg)

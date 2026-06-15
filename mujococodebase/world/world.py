@@ -44,6 +44,8 @@ class World:
         self.ball_pos: np.ndarray = np.zeros(3)
         self.ball_pos_filtered: np.ndarray = np.zeros(3)
         self.is_ball_pos_updated: bool = False
+        self.team_messages: list[str] = []
+        self.last_team_message: str = None
         self.our_team_players: list[OtherRobot] = [OtherRobot() for _ in range(self.MAX_PLAYERS_PER_TEAM)]
         self.their_team_players: list[OtherRobot] = [OtherRobot(is_teammate=False) for _ in range(self.MAX_PLAYERS_PER_TEAM)]
         self.field: Field = self.__initialize_field(field_name=field_name)

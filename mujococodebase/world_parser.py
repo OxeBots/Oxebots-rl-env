@@ -83,6 +83,13 @@ class WorldParser:
         robot.accelerometer = np.array(perception_dict["ACC"]["a"])
 
         world.is_ball_pos_updated = False
+        
+        if "team_message" in perception_dict:
+            team_msg = perception_dict["team_message"]
+            if isinstance(team_msg, str):
+                world.last_team_message = team_msg
+                world.team_messages.append(team_msg)
+
 
         # Vision parse
         if 'See' in perception_dict:
