@@ -4,10 +4,12 @@
 poetry.lock
 poetry.toml
 **/*.log
-**/*.txt
 **/build/
 **/install/
 **/log/
 *.spec
 dist/
 venv/
+training/logs/
+training/checkpoints/
+
