@@ -5,6 +5,7 @@ import time
 from math import hypot
 import numpy as np
 from mujococodebase.utils.math_ops import MathOps
+from mujococodebase.world import world
 from mujococodebase.world.field import FIFAField, HLAdultField
 from mujococodebase.world.play_mode import PlayModeEnum, PlayModeGroupEnum
 from mujococodebase.navigation.potential_field import PotentialFieldPlanner
@@ -43,34 +44,6 @@ class DecisionMaker:
     } 
 
     def __init__(self, agent):
-        now = time.time()   
-        self.agent = agent
-        world = self.agent.world
-       #aq eu criei coloquei o mundo na variavel
-
-        if world.is_ball_pos_updated:
-            x,y = world.ball_pos[:2]
-            send = False;
-            
-            min_dist = 0.2
-            min_time = 0.5
-            last_pos = getattr(self, "last_ball_pos", None)
-            last_time = getattr(self, "last_ball_pos_time", None)
-
-            if last_pos is None:
-                send = True
-            else:
-                dist = hypot(x - last_pos[0], y - last_pos[1])
-                if dist >= min_dist:
-                    send = True
-                elif last_time is not None and (now - last_time) >= min_time:
-                    send = True
-            if send:
-                mensagem  = f"B:{x:.3f}, {y:.3f} {now:.3f} {self.agent.world.number:.3f}"
-                self.agent.server.send_team_message(mensagem)
-                self._last_ball_sent_time = now
-                self._last_ball_sent_pos = (x, y)
-
 
 
         """
@@ -91,6 +64,84 @@ class DecisionMaker:
             k_repulsive=2.0, 
             rho_zero=2.0
         )
+
+      
+    def process_team_messages(self) -> None:
+        """
+        Process messages received from teammates.
+
+        This function can be expanded to handle different types of messages
+        and update the agent's state or behavior accordingly.
+        """
+        for msg in self.agent.world.team_messages:
+            
+                # Example: Process ball position messages from teammates
+            try:
+                if msg.startswith("B:"):
+                    msg_content = msg.replace("B:", "").strip()
+                    parts = msg_content.split()
+                    if len(parts) < 4:
+                        logger.warning(f"Mensagem mal formatada: {msg}")
+                        continue
+                    x = float(parts[0].rstrip(','))
+                    y = float(parts[1])
+                    timestamp = float(parts[2])
+                    sender_id = int(float(parts[3]))
+
+                    self.process_ball_teammate_ball_info(
+                        x = x,
+                        y = y,
+                        timestamp = timestamp, 
+                        sender_id = sender_id
+                    )
+            except Exception as e:
+                logger.error(f"Erro ao processar mensagem de time: {msg} - {e}")
+                    
+        self.agent.world.team_messages.clear()
+
+    def process_ball_teammate_ball_info(self, x: float, y: float, timestamp: float, sender_id: int) -> None:
+        logger.info(f"Bola de robô {sender_id}: ({x:.2f}, {y:.2f})")
+        #O que o robô vai fazer com essa informação?
+        ball_pos = np.array([x, y])
+        robot_pos = self.agent.world.global_position[:2]
+        dist_to_teammate_ball = np.linalg.norm(ball_pos - robot_pos)
+        if dist_to_teammate_ball < 1.0:
+            self.agent.world.ball_pos_filtered[:2] = ball_pos
+            self.agent.world.is_ball_pos_updated = True
+            
+    def update_ball_info(self) -> None:
+        """
+        Updates the ball information in the agent's world state.
+
+        This function checks if the ball position has been updated and
+        updates the agent's internal state accordingly.
+        """
+        now = time.time()   
+        world = self.agent.world
+       #aq eu criei coloquei o mundo na variavel
+
+        if world.is_ball_pos_updated:
+            x,y = world.ball_pos[:2]
+            send = False;
+            
+            min_dist = 0.2
+            min_time = 0.5
+            last_pos = getattr(self, "_last_ball_sent_pos", None)
+            last_time = getattr(self, "_last_ball_sent_time", None)
+
+            if last_pos is None:
+                send = True
+            else:
+                dist = hypot(x - last_pos[0], y - last_pos[1])
+                if dist >= min_dist:
+                    send = True
+                elif last_time is not None and (now - last_time) >= min_time:
+                    send = True
+            if send:
+                mensagem  = f"B:{x:.3f}, {y:.3f} {now:.3f} {self.agent.world.number:.3f}"
+                self.agent.server.send_team_message(mensagem)
+                self._last_ball_sent_time = now
+                self._last_ball_sent_pos = (x, y)
 
     def update_current_behavior(self) -> None:
         """
@@ -127,6 +178,9 @@ class DecisionMaker:
             self.carry_ball()
 
         self.agent.robot.commit_motor_targets_pd()
+        self.update_ball_info()
+        self.process_team_messages()
+
 
     def get_obstacles(self):
         """Returns a list of 2D positions of all other robots."""
