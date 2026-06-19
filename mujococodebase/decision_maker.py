@@ -8,6 +8,12 @@ from mujococodebase.navigation.potential_field import PotentialFieldPlanner
 from mujococodebase.utils.math_ops import MathOps
 from mujococodebase.world.field import FIFAField, HLAdultField
 from mujococodebase.world.play_mode import PlayModeEnum, PlayModeGroupEnum
+<<<<<<< HEAD
+=======
+from mujococodebase.navigation.potential_field import PotentialFieldPlanner
+from mujococodebase.navigation.team_manager import TeamManager
+
+>>>>>>> origin/main
 
 logger = logging.getLogger()
 
@@ -56,8 +62,15 @@ class DecisionMaker:
 
         # Path Planner using Potential Fields
         self.planner = PotentialFieldPlanner(
+<<<<<<< HEAD
             k_attractive=1.0, k_repulsive=2.0, rho_zero=2.0
+=======
+            k_attractive=2.0, 
+            k_repulsive=0.0, 
+            rho_zero=2.0
+>>>>>>> origin/main
         )
+        self.team_manager = TeamManager(agent)
 
     def update_current_behavior(self) -> None:
         """
@@ -93,15 +106,26 @@ class DecisionMaker:
             )
 
         elif self.agent.world.playmode is PlayModeEnum.PLAY_ON:
+<<<<<<< HEAD
             self.carry_ball()
         elif self.agent.world.playmode in (
             PlayModeEnum.BEFORE_KICK_OFF,
             PlayModeEnum.THEIR_GOAL,
             PlayModeEnum.OUR_GOAL,
         ):
+=======
+            if self.team_manager.should_go_to_ball():
+                self.carry_ball()
+            else:
+                self.move_to_strategic_position()
+        elif self.agent.world.playmode in (PlayModeEnum.BEFORE_KICK_OFF, PlayModeEnum.THEIR_GOAL, PlayModeEnum.OUR_GOAL):
+>>>>>>> origin/main
             self.agent.skills_manager.execute("Neutral")
         else:
-            self.carry_ball()
+            if self.team_manager.should_go_to_ball():
+                self.carry_ball()
+            else:
+                self.move_to_strategic_position()
 
         self.agent.robot.commit_motor_targets_pd()
 
@@ -123,9 +147,34 @@ class DecisionMaker:
                     obstacles.append(p.position[:2])
         return obstacles
 
+    def move_to_strategic_position(self):
+        """Moves the robot to its assigned strategic position."""
+        target_pos = self.team_manager.get_strategic_position()
+        my_pos = self.agent.world.global_position[:2]
+        ball_pos = self.agent.world.ball_pos_filtered[:2]
+        
+        obstacles = self.get_obstacles()
+        
+        next_target = self.planner.get_next_step(
+            current_pos=my_pos,
+            goal_pos=target_pos,
+            obstacles=obstacles,
+            step_size=0.5
+        )
+        
+        # Always face the ball when positioning
+        desired_orientation = MathOps.vector_angle(ball_pos - my_pos)
+        
+        self.agent.skills_manager.execute(
+            "Walk",
+            target_2d=next_target,
+            is_target_absolute=True,
+            orientation=desired_orientation
+        )
+
     def carry_ball(self):
         """
-        Basic example of a behavior: moves the robot toward the goal while handling the ball.
+        Moves the robot toward the goal while handling the ball.
         """
         dist_to_ball = np.linalg.norm(
             self.agent.world.ball_pos_filtered[:2]
@@ -133,8 +182,13 @@ class DecisionMaker:
         )
 
         # Only search if ball is lost for more than 10 frames (~0.2s)
+<<<<<<< HEAD
         # AND we are not very close to it (if we are close, we assume it's under our chin)
         if self.ball_lost_timer > 10 and dist_to_ball > 1:
+=======
+        # AND we are not very close to it (if we are close, we assume it's under our feet)
+        if self.ball_lost_timer > 10 and dist_to_ball > 0.4:
+>>>>>>> origin/main
             # If the ball is not visible, spin in place to find it
             current_yaw = self.agent.robot.global_orientation_euler[2]
             search_orientation = MathOps.normalize_deg(current_yaw + 30)
@@ -145,6 +199,7 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=search_orientation,
             )
+            self.agent.robot.set_motor_target_position("he2", 0, kp=20, kd=0.1)
             return
 
         their_goal_pos = self.agent.world.field.get_their_goal_position()[:2]
@@ -157,8 +212,13 @@ class DecisionMaker:
             return
         ball_to_goal_dir = ball_to_goal / bg_norm
 
+        # Calculate target pitch to look at the ball
+        camera_height = 0.5
+        target_pitch = np.rad2deg(np.arctan2(camera_height, max(dist_to_ball, 0.1)))
+        target_pitch = np.clip(target_pitch, 0, 60)
+
         # Fine-tuned parameters
-        dist_from_ball_to_start_carrying = 0.25
+        dist_from_ball_to_start_carrying = 0.2
         carry_ball_pos = ball_pos - ball_to_goal_dir * dist_from_ball_to_start_carrying
 
         my_to_ball = ball_pos - my_pos
@@ -172,17 +232,29 @@ class DecisionMaker:
         cosang = np.clip(cosang, -1.0, 1.0)
         angle_diff = np.arccos(cosang)
 
-        ANGLE_TOL = np.deg2rad(5.0)
+        # REDUCED TOLERANCE for better alignment
+        ANGLE_TOL = np.deg2rad(15.0)
+        # If very close to the ball, we consider it "controlled"
+        ball_at_feet = dist_to_ball < 0.35 
+        
         aligned = (my_to_ball_norm > 1e-6) and (angle_diff <= ANGLE_TOL)
-
         behind_ball = np.dot(my_pos - ball_pos, ball_to_goal_dir) < 0
         desired_orientation = MathOps.vector_angle(ball_to_goal)
 
         # Get obstacles for potential field planning
         obstacles = self.get_obstacles()
 
-        if not aligned or not behind_ball:
-            # Navigate to the preparation point using Potential Fields
+        if ball_at_feet and aligned:
+            # BALL CONTROL: Move directly to goal
+            # We bypass the "preparation point" and go straight to the goal
+            self.agent.skills_manager.execute(
+                "Walk",
+                target_2d=their_goal_pos,
+                is_target_absolute=True,
+                orientation=desired_orientation
+            )
+        elif not aligned or not behind_ball:
+            # APPROACH: Navigate to the preparation point (behind the ball)
             next_target = self.planner.get_next_step(
                 current_pos=my_pos,
                 goal_pos=carry_ball_pos,
@@ -196,8 +268,9 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation,
             )
+            self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
         else:
-            # PUSH: Target the goal directly, but still avoid obstacles if necessary
+            # PUSH: Target the goal directly
             next_target = self.planner.get_next_step(
                 current_pos=my_pos,
                 goal_pos=their_goal_pos,
@@ -211,3 +284,7 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation,
             )
+<<<<<<< HEAD
+=======
+            self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
+>>>>>>> origin/main
