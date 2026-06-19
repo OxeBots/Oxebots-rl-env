@@ -105,10 +105,16 @@ class DecisionMaker:
         ball_pos = np.array([x, y])
         robot_pos = self.agent.world.global_position[:2]
         dist_to_teammate_ball = np.linalg.norm(ball_pos - robot_pos)
-        if dist_to_teammate_ball < 1.0:
+
+        if dist_to_teammate_ball < 1.0 or not self.agent.world.is_ball_pos_updated:
             self.agent.world.ball_pos_filtered[:2] = ball_pos
             self.agent.world.is_ball_pos_updated = True
-            
+        now = time.time()
+        if now - timestamp < 0.5:
+            self.agent.world.ball_pos_teammate[:2] = ball_pos
+            self.agent.world.ball_teammate_timestamp = timestamp
+        
+        
     def update_ball_info(self) -> None:
         """
         Updates the ball information in the agent's world state.

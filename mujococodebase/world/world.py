@@ -26,7 +26,10 @@ class World:
         """
 
         from mujococodebase.agent import Agent  # type hinting
-
+        self.ball_pos_local: np.ndarray = np.zeros(3)
+        self.ball_local_timestamp: float = None
+        self.ball_pos_teammate: np.ndarray = np.zeros(3)
+        self.ball_teammate_timestamp: float = None
         self.agent: Agent = agent
         self.team_name: str = team_name
         self.number: int = number

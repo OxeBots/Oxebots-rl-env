@@ -98,7 +98,9 @@ class WorldParser:
                 obj_type = seen_object['type']
                 
                 if obj_type == 'B': # Ball
-                    
+                    ball_pos_local = np.array(seen_object['pol'])
+                    ball_local_timestamp = world.server_time 
+                    world.is_ball_pos_updated = True
                     polar_coords = np.array(seen_object['pol'])
                     local_cartesian_3d = MathOps.deg_sph2cart(polar_coords)
                     
