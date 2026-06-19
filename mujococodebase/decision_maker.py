@@ -5,15 +5,11 @@ from typing import Mapping
 import numpy as np
 
 from mujococodebase.navigation.potential_field import PotentialFieldPlanner
+from mujococodebase.navigation.team_manager import TeamManager
 from mujococodebase.utils.math_ops import MathOps
 from mujococodebase.world.field import FIFAField, HLAdultField
 from mujococodebase.world.play_mode import PlayModeEnum, PlayModeGroupEnum
-<<<<<<< HEAD
-=======
-from mujococodebase.navigation.potential_field import PotentialFieldPlanner
-from mujococodebase.navigation.team_manager import TeamManager
 
->>>>>>> origin/main
 
 logger = logging.getLogger()
 
@@ -59,16 +55,13 @@ class DecisionMaker:
         self.agent: Agent = agent
         self.is_getting_up: bool = False
         self.ball_lost_timer: int = 0
+        self.last_seen_dist_to_ball: float = float('inf')  # Distância calculada apenas quando a bola é vista
 
         # Path Planner using Potential Fields
         self.planner = PotentialFieldPlanner(
-<<<<<<< HEAD
-            k_attractive=1.0, k_repulsive=2.0, rho_zero=2.0
-=======
             k_attractive=2.0, 
             k_repulsive=0.0, 
             rho_zero=2.0
->>>>>>> origin/main
         )
         self.team_manager = TeamManager(agent)
 
@@ -81,6 +74,10 @@ class DecisionMaker:
         """
         if self.agent.world.is_ball_pos_updated:
             self.ball_lost_timer = 0
+            self.last_seen_dist_to_ball = np.linalg.norm(
+                self.agent.world.ball_pos_filtered[:2]
+                - self.agent.world.global_position[:2]
+            )
         else:
             self.ball_lost_timer += 1
 
@@ -106,20 +103,11 @@ class DecisionMaker:
             )
 
         elif self.agent.world.playmode is PlayModeEnum.PLAY_ON:
-<<<<<<< HEAD
-            self.carry_ball()
-        elif self.agent.world.playmode in (
-            PlayModeEnum.BEFORE_KICK_OFF,
-            PlayModeEnum.THEIR_GOAL,
-            PlayModeEnum.OUR_GOAL,
-        ):
-=======
             if self.team_manager.should_go_to_ball():
                 self.carry_ball()
             else:
                 self.move_to_strategic_position()
         elif self.agent.world.playmode in (PlayModeEnum.BEFORE_KICK_OFF, PlayModeEnum.THEIR_GOAL, PlayModeEnum.OUR_GOAL):
->>>>>>> origin/main
             self.agent.skills_manager.execute("Neutral")
         else:
             if self.team_manager.should_go_to_ball():
@@ -182,14 +170,10 @@ class DecisionMaker:
         )
 
         # Only search if ball is lost for more than 10 frames (~0.2s)
-<<<<<<< HEAD
-        # AND we are not very close to it (if we are close, we assume it's under our chin)
-        if self.ball_lost_timer > 10 and dist_to_ball > 1:
-=======
-        # AND we are not very close to it (if we are close, we assume it's under our feet)
-        if self.ball_lost_timer > 10 and dist_to_ball > 0.4:
->>>>>>> origin/main
-            # If the ball is not visible, spin in place to find it
+        # Use last_seen_dist (not the drifting Kalman dist) so the decision doesn't change over time
+        ball_was_near = self.last_seen_dist_to_ball < 0.5
+        if self.ball_lost_timer > 10 and not ball_was_near:
+            # Ball is truly lost and far away — spin in place to find it
             current_yaw = self.agent.robot.global_orientation_euler[2]
             search_orientation = MathOps.normalize_deg(current_yaw + 30)
 
@@ -200,6 +184,24 @@ class DecisionMaker:
                 orientation=search_orientation,
             )
             self.agent.robot.set_motor_target_position("he2", 0, kp=20, kd=0.1)
+            return
+        elif self.ball_lost_timer > 10 and ball_was_near:
+            # Ball was nearby but left the field of vision (likely under our feet)
+            # Look down to re-acquire instead of spinning
+            their_goal_pos = self.agent.world.field.get_their_goal_position()[:2]
+            ball_pos = self.agent.world.ball_pos_filtered[:2]
+            my_pos = self.agent.world.global_position[:2]
+            ball_to_goal = their_goal_pos - ball_pos
+            desired_orientation = MathOps.vector_angle(ball_to_goal)
+
+            self.agent.skills_manager.execute(
+                "Walk",
+                target_2d=their_goal_pos,
+                is_target_absolute=True,
+                orientation=desired_orientation,
+            )
+            # Look down aggressively to re-acquire the ball
+            self.agent.robot.set_motor_target_position("he2", 40, kp=20, kd=0.1)
             return
 
         their_goal_pos = self.agent.world.field.get_their_goal_position()[:2]
@@ -235,7 +237,7 @@ class DecisionMaker:
         # REDUCED TOLERANCE for better alignment
         ANGLE_TOL = np.deg2rad(15.0)
         # If very close to the ball, we consider it "controlled"
-        ball_at_feet = dist_to_ball < 0.35 
+        ball_at_feet = dist_to_ball < 0.5
         
         aligned = (my_to_ball_norm > 1e-6) and (angle_diff <= ANGLE_TOL)
         behind_ball = np.dot(my_pos - ball_pos, ball_to_goal_dir) < 0
@@ -253,6 +255,7 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation
             )
+            self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
         elif not aligned or not behind_ball:
             # APPROACH: Navigate to the preparation point (behind the ball)
             next_target = self.planner.get_next_step(
@@ -284,7 +287,4 @@ class DecisionMaker:
                 is_target_absolute=True,
                 orientation=desired_orientation,
             )
-<<<<<<< HEAD
-=======
             self.agent.robot.set_motor_target_position("he2", target_pitch, kp=20, kd=0.1)
->>>>>>> origin/main
