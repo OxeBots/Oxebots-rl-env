@@ -40,21 +40,19 @@ No navegador: **http://localhost:6006**
 
 ## 3. Visualização do Aprendizado (Enjoy)
 
-### Ver o Modelo Final (após o treino acabar)
-O script busca automaticamente o arquivo mais recente em `training/models/`.
+### Ver o Modelo mais recente
+O script busca automaticamente o arquivo mais recente em `training/models/` (modelos finais) ou `training/checkpoints/` (se não houver modelos finais).
 ```bash
 python3 training/enjoy.py front
 # OU
 python3 training/enjoy.py back
 ```
 
-### Ver o Progresso "Ao Vivo" (Checkpoints)
-Se o treino ainda estiver rodando, você pode ver o que o robô já aprendeu carregando um checkpoint da pasta `training/checkpoints/`.
-
-Para fazer isso, use o script de teste rápido (substitua o caminho pelo checkpoint desejado):
+### Ver um Modelo Específico (Checkpoints ou Antigos)
+Você pode passar o caminho de um arquivo `.zip` específico como segundo argumento:
 ```bash
-# Exemplo para visualizar um checkpoint de 1 milhão de passos do modo Front:
-python3 -c "import gymnasium as gym; from stable_baselines3 import PPO; from training.getup_env import GetUpFrontEnv; env = GetUpFrontEnv(); model = PPO.load('training/checkpoints/front/getup_front_model_1000000_steps', env=env); obs, _ = env.reset(); import mujoco.viewer; import time; viewer = mujoco.viewer.launch_passive(env.model, env.data); [ (model.predict(obs, deterministic=True), (action := model.predict(obs, deterministic=True)[0]), (step_res := env.step(action)), (obs := step_res[0]), (done := step_res[2]), (trunc := step_res[3]), viewer.sync(), time.sleep(0.02), (obs := env.reset()[0] if (done or trunc) else obs)) for _ in range(10000) ]"
+# Exemplo para visualizar um checkpoint específico de 1 milhão de passos:
+python3 training/enjoy.py front training/checkpoints/front/getup_front_model_1000000_steps.zip
 ```
 
 ## 4. Onde ficam os modelos?

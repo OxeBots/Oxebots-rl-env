@@ -28,7 +28,23 @@ def get_latest_model(model_dir, checkpoint_dir):
     return None, None
 
 def enjoy():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "front"
+    mode = "front"
+    specific_model = None
+
+    if len(sys.argv) > 1:
+        arg1 = sys.argv[1]
+        if arg1 in ("front", "back"):
+            mode = arg1
+            if len(sys.argv) > 2:
+                specific_model = sys.argv[2]
+        else:
+            # O usuário passou o arquivo diretamente como primeiro argumento
+            specific_model = arg1
+            # Tenta inferir o modo pelo caminho do arquivo
+            if "back" in arg1.lower():
+                mode = "back"
+            else:
+                mode = "front"
     
     if mode == "back":
         env = GetUpBackEnv()
@@ -41,7 +57,11 @@ def enjoy():
 
     print(f"Modo: {mode.upper()}")
     
-    model_path, model_type = get_latest_model(model_dir, checkpoint_dir)
+    if specific_model:
+        model_path = specific_model.replace(".zip", "")
+        model_type = "ESPECÍFICO"
+    else:
+        model_path, model_type = get_latest_model(model_dir, checkpoint_dir)
 
     if model_path:
         try:
@@ -51,7 +71,7 @@ def enjoy():
             print(f"Erro ao carregar modelo: {e}")
             model = None
     else:
-        print(f"Nenhum modelo ou checkpoint encontrado em {model_dir} ou {checkpoint_dir}. Usando ações aleatórias.")
+        print(f"Nenhum modelo ou checkpoint encontrado. Usando ações aleatórias.")
         model = None
 
     obs, _ = env.reset()
