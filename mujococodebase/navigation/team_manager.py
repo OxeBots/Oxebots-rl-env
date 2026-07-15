@@ -14,7 +14,7 @@ class TeamManager:
         self.hysteresis_advantage = 0.5  # 0.5 meters advantage for the current pursuer
 
     def _assign_role(self, number: int) -> Role:
-        if number == 1:
+        if number == 7:
             return Role.GOALKEEPER
         elif number in [2, 3]:
             return Role.DEFENDER
