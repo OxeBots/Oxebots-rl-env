@@ -101,6 +101,17 @@ A execução das atualizações de rede neural (PPO) é feita na GPU se o CUDA e
   ```bash
   pip install torch --extra-index-url https://download.pytorch.org/whl/cu121 --force-reinstall
   ```
+* **Como validar se a GPU está sendo detectada**:
+  1. No terminal, verifique se a placa de vídeo é exibida pelo driver:
+     ```bash
+     nvidia-smi
+     ```
+  2. Teste se o PyTorch no ambiente virtual está detectando a GPU:
+     ```bash
+     python3 -c "import torch; print('CUDA Disponível:', torch.cuda.is_available()); print('GPU Detectada:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'Nenhuma')"
+     ```
+     Se retornar `CUDA Disponível: True`, o treinamento usará a placa automaticamente.
+
 
 ### Outras Informações
 * **Duração do Episódio**: O robô tem 1000 passos (~20s) para levantar e estabilizar.
