@@ -8,18 +8,10 @@ import sys
 import os
 import glob
 
-def get_latest_model(model_dir, checkpoint_dir):
+def get_latest_model(checkpoint_dir):
     """
-    Busca o modelo mais recente. 
-    Primeiro tenta na pasta de modelos finais, depois na de checkpoints.
+    Busca o checkpoint mais recente na pasta de checkpoints.
     """
-    # 1. Tenta modelos finais
-    final_files = glob.glob(os.path.join(model_dir, "*.zip"))
-    if final_files:
-        latest_file = max(final_files, key=os.path.getctime)
-        return latest_file.replace(".zip", ""), "MODELO FINAL"
-
-    # 2. Se não houver, tenta checkpoints
     checkpoint_files = glob.glob(os.path.join(checkpoint_dir, "*.zip"))
     if checkpoint_files:
         latest_file = max(checkpoint_files, key=os.path.getctime)
@@ -61,7 +53,8 @@ def enjoy():
         model_path = specific_model.replace(".zip", "")
         model_type = "ESPECÍFICO"
     else:
-        model_path, model_type = get_latest_model(model_dir, checkpoint_dir)
+        model_path, model_type = get_latest_model(checkpoint_dir)
+
 
     if model_path:
         try:
