@@ -26,7 +26,7 @@ def train():
 
 
     checkpoint_callback = CheckpointCallback(
-        save_freq=250000,
+        save_freq=2500000,
         save_path=checkpoint_dir,
         name_prefix="getup_back_model"
     )
@@ -37,7 +37,8 @@ def train():
     batch_size = 128
     n_epochs = 10
     gamma = 0.99
-    total_timesteps = 10000000
+    total_timesteps = 100000000
+
 
     # Configuração de Hiperparâmetros para o WandB
     config = {
