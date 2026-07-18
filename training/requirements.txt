@@ -6,3 +6,4 @@ tensorboard
 scipy
 pyyaml
 wandb
+moviepy

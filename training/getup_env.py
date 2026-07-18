@@ -21,7 +21,12 @@ def _load_keyframes_from_yaml(yaml_path):
 
 class GetUpEnv(gym.Env):
     """Classe Base para o ambiente de levantar do robô T1."""
-    def __init__(self, model_path=None):
+    metadata = {"render_modes": ["rgb_array"]}
+
+    def __init__(self, model_path=None, render_mode=None):
+        self.render_mode = render_mode
+        self.renderer = None
+
         if model_path is None:
             home = os.path.expanduser("~")
             model_path = os.path.join(home, "rcssservermj/src/rcsssmj/resources/robots/T1/robot.xml")
@@ -169,6 +174,18 @@ class GetUpEnv(gym.Env):
         self.data.qpos[2] = 0.25
         return self._get_obs(), {}
 
+    def render(self):
+        if self.render_mode == "rgb_array":
+            if self.renderer is None:
+                self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+            self.renderer.update_scene(self.data, camera=-1)
+            return self.renderer.render()
+
+    def close(self):
+        if self.renderer is not None:
+            self.renderer.close()
+            self.renderer = None
+
 
 class _MimicGetUpMixin:
     """Carrega um YAML de keyframes e fornece reward de imitação (DeepMimic-style)."""
@@ -314,8 +331,8 @@ class GetUpBackEnv(_MimicGetUpMixin, GetUpEnv):
 
     DEFAULT_YAML_NAME = "get_up_back.yaml"
 
-    def __init__(self, model_path=None, keyframe_yaml=None):
-        super().__init__(model_path=model_path)
+    def __init__(self, model_path=None, keyframe_yaml=None, render_mode=None):
+        super().__init__(model_path=model_path, render_mode=render_mode)
         self._init_mimic(keyframe_yaml=keyframe_yaml)
 
     def reset(self, seed=None, options=None):
@@ -446,8 +463,8 @@ class GetUpFrontEnv(_MimicGetUpMixin, GetUpEnv):
 
     DEFAULT_YAML_NAME = "get_up_front.yaml"
 
-    def __init__(self, model_path=None, keyframe_yaml=None):
-        super().__init__(model_path=model_path)
+    def __init__(self, model_path=None, keyframe_yaml=None, render_mode=None):
+        super().__init__(model_path=model_path, render_mode=render_mode)
         self._init_mimic(keyframe_yaml=keyframe_yaml)
 
     def reset(self, seed=None, options=None):

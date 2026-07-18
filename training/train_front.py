@@ -1,7 +1,7 @@
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecVideoRecorder, DummyVecEnv
 from getup_env import GetUpFrontEnv
 import os
 from datetime import datetime
@@ -68,6 +68,25 @@ def train():
         save_code=True,         # Salva o estado do código no wandb
     )
 
+    # Configuração de Ambiente para Gravação de Vídeo no WandB
+    eval_env = DummyVecEnv([lambda: GetUpFrontEnv(render_mode="rgb_array")])
+    eval_env = VecVideoRecorder(
+        eval_env,
+        video_folder=os.path.join(log_dir, "videos"),
+        record_video_trigger=lambda step: step % 1000 == 0,
+        video_length=1000,
+        name_prefix="ppo-getup-front-eval"
+    )
+
+    eval_callback = EvalCallback(
+        eval_env,
+        best_model_save_path=os.path.join(model_dir, "best_model"),
+        log_path=os.path.join(log_dir, "eval"),
+        eval_freq=2500000,  # Avalia e grava vídeo a cada 2.5M passos
+        n_eval_episodes=1,
+        deterministic=True,
+    )
+
     wandb_callback = WandbCallback(
         gradient_save_freq=100,
         model_save_path=os.path.join(model_dir, run.id),
@@ -95,7 +114,7 @@ def train():
             total_timesteps=total_timesteps, 
             progress_bar=True,
             tb_log_name=f"PPO_GetUp_Front_{timestamp}",
-            callback=[checkpoint_callback, wandb_callback]
+            callback=[checkpoint_callback, eval_callback, wandb_callback]
         )
     except KeyboardInterrupt:
         print("\nTreinamento interrompido.")
