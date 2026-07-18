@@ -12,4 +12,4 @@ dist/
 venv/
 training/logs/
 training/checkpoints/
-
+wandb/
