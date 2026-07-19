@@ -1,6 +1,7 @@
 import gymnasium as gym
 from stable_baselines3 import PPO
 from getup_env import GetUpFrontEnv, GetUpBackEnv
+from walk_env import WalkEnv
 import mujoco.viewer
 import time
 import numpy as np
@@ -13,13 +14,11 @@ def get_latest_model(model_dir, checkpoint_dir):
     Busca o modelo mais recente. 
     Primeiro tenta na pasta de modelos finais, depois na de checkpoints.
     """
-    # 1. Tenta modelos finais
     final_files = glob.glob(os.path.join(model_dir, "*.zip"))
     if final_files:
         latest_file = max(final_files, key=os.path.getctime)
         return latest_file.replace(".zip", ""), "MODELO FINAL"
 
-    # 2. Se não houver, tenta checkpoints
     checkpoint_files = glob.glob(os.path.join(checkpoint_dir, "*.zip"))
     if checkpoint_files:
         latest_file = max(checkpoint_files, key=os.path.getctime)
@@ -30,7 +29,11 @@ def get_latest_model(model_dir, checkpoint_dir):
 def enjoy():
     mode = sys.argv[1] if len(sys.argv) > 1 else "front"
     
-    if mode == "back":
+    if mode == "walk":
+        env = WalkEnv()
+        model_dir = "./training/models/walk/"
+        checkpoint_dir = "./training/checkpoints/walk/"
+    elif mode == "back":
         env = GetUpBackEnv()
         model_dir = "./training/models/back/"
         checkpoint_dir = "./training/checkpoints/back/"
@@ -51,10 +54,20 @@ def enjoy():
             print(f"Erro ao carregar modelo: {e}")
             model = None
     else:
-        print(f"Nenhum modelo ou checkpoint encontrado em {model_dir} ou {checkpoint_dir}. Usando ações aleatórias.")
+        print(f"Nenhum modelo encontrado em {model_dir} ou {checkpoint_dir}. Ações aleatórias.")
         model = None
 
     obs, _ = env.reset()
+    
+    # Walk: exibir e opcionalmente sobrescrever o comando de velocidade
+    if mode == "walk":
+        if len(sys.argv) > 2:
+            cmd = [float(x) for x in sys.argv[2].split()]
+            env.velocity_command = np.array(cmd)
+            print(f"Comando manual: vx={cmd[0]:.2f}, vy={cmd[1]:.2f}, yaw={cmd[2]:.2f}")
+        else:
+            print(f"Comando: vx={env.velocity_command[0]:.2f}, "
+                  f"vy={env.velocity_command[1]:.2f}, yaw={env.velocity_command[2]:.2f}")
     
     with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
         while viewer.is_running():
@@ -75,6 +88,9 @@ def enjoy():
             
             if done or trunc:
                 obs, _ = env.reset()
+                if mode == "walk":
+                    print(f"Novo episódio — Comando: vx={env.velocity_command[0]:.2f}, "
+                          f"vy={env.velocity_command[1]:.2f}, yaw={env.velocity_command[2]:.2f}")
 
 if __name__ == "__main__":
     enjoy()
