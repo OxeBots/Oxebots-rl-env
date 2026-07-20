@@ -1,12 +1,32 @@
-from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecVideoRecorder, DummyVecEnv
-from getup_env import GetUpBackEnv
-import os
-from datetime import datetime
+import gymnasium as gym
 import wandb
+import os
+import glob
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, BaseCallback
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from getup_env import GetUpBackEnv
+from datetime import datetime
 from wandb.integration.sb3 import WandbCallback
+
+class UploadVideoCallback(BaseCallback):
+    def __init__(self, video_folder: str, verbose=0):
+        super().__init__(verbose)
+        self.video_folder = video_folder
+        self.videos_uploaded = set()
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_end(self) -> None:
+        arquivos_videos = glob.glob(os.path.join(self.video_folder, "*.mp4"))
+
+        for video_file in arquivos_videos:
+            if (video_file not in self.videos_uploaded and os.path.getsize(video_file) > 10_000):
+                wandb.log({"video": wandb.Video(video_file, format="mp4")})
+                self.videos_uploaded.add(video_file)
 
 def train():
     # Pastas organizadas
@@ -24,9 +44,8 @@ def train():
     
     env = make_vec_env(GetUpBackEnv, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
 
-
     checkpoint_callback = CheckpointCallback(
-        save_freq=2500000,
+        save_freq=140_000,
         save_path=checkpoint_dir,
         name_prefix="getup_back_model"
     )
@@ -37,7 +56,7 @@ def train():
     batch_size = 128
     n_epochs = 10
     gamma = 0.99
-    total_timesteps = 100000000
+    total_timesteps = 100_000_000
 
 
     # Configuração de Hiperparâmetros para o WandB
@@ -52,8 +71,6 @@ def train():
         "n_envs": num_cpu,
     }
 
-
-
     # Nome único com timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     final_model_path = os.path.join(model_dir, f"ppo_getup_back_{timestamp}")
@@ -62,27 +79,34 @@ def train():
     run = wandb.init(
         project="bahiart-mujoco-getup",
         name=f"ppo-getup-back-{timestamp}",
-        config=config,
-        sync_tensorboard=True,  # Sincroniza logs do TensorBoard automaticamente
-        monitor_gym=True,       # Monitora o Gym/Gymnasium
+        config=config,       
+        sync_tensorboard=True,  # Sincroniza com TensorBoard
         save_code=True,         # Salva o estado do código no wandb
     )
 
     # Configuração de Ambiente para Gravação de Vídeo no WandB
-    eval_env = DummyVecEnv([lambda: GetUpBackEnv(render_mode="rgb_array")])
-    eval_env = VecVideoRecorder(
-        eval_env,
-        video_folder=os.path.join(log_dir, "videos"),
-        record_video_trigger=lambda step: step % 1000 == 0,
-        video_length=1000,
-        name_prefix="ppo-getup-back-eval"
-    )
+    gym.register(
+        id="GetUpBackEnv-v0",
+        entry_point="getup_env:GetUpBackEnv",
+        )
+    
+    def make_env():
+        env_eval = gym.make("GetUpBackEnv-v0", render_mode="rgb_array")
+        env_eval = gym.wrappers.RecordVideo(
+            env_eval,
+            video_folder=os.path.join(log_dir, "videos"),
+            episode_trigger=lambda x:True
+        )
+        env_eval = Monitor(env_eval) 
+        return env_eval
+
+    vec_env_eval = DummyVecEnv([make_env])
 
     eval_callback = EvalCallback(
-        eval_env,
+        vec_env_eval,
         best_model_save_path=os.path.join(model_dir, "best_model"),
         log_path=os.path.join(log_dir, "eval"),
-        eval_freq=2500000,  # Avalia e grava vídeo a cada 2.5M passos
+        eval_freq=140_000, 
         n_eval_episodes=1,
         deterministic=True,
     )
@@ -92,6 +116,8 @@ def train():
         model_save_path=os.path.join(model_dir, run.id),
         verbose=2,
     )
+
+    video_upload_callback = UploadVideoCallback(video_folder=os.path.join(log_dir, "videos"))
 
     model = PPO(
         "MlpPolicy", 
@@ -114,7 +140,7 @@ def train():
             total_timesteps=total_timesteps, 
             progress_bar=True,
             tb_log_name=f"PPO_GetUp_Back_{timestamp}",
-            callback=[checkpoint_callback, eval_callback, wandb_callback]
+            callback=[checkpoint_callback, eval_callback, wandb_callback, video_upload_callback]
         )
     except KeyboardInterrupt:
         print("\nTreinamento interrompido.")
@@ -122,7 +148,6 @@ def train():
     model.save(final_model_path)
     print(f"Modelo salvo com sucesso: {final_model_path}")
 
-    # Limpeza de checkpoints após sucesso
     print("Limpando checkpoints intermediários...")
     for file in os.listdir(checkpoint_dir):
         file_path = os.path.join(checkpoint_dir, file)

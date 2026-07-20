@@ -11,5 +11,6 @@ poetry.toml
 dist/
 venv/
 training/logs/
+training/models/
 training/checkpoints/
 wandb/
