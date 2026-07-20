@@ -9,6 +9,18 @@ import sys
 import os
 import glob
 
+class ONNXWrapper:
+    def __init__(self, path):
+        import onnxruntime as ort
+        self.session = ort.InferenceSession(path)
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_name = self.session.get_outputs()[0].name
+
+    def predict(self, obs, deterministic=True):
+        obs_array = np.array(obs, dtype=np.float32).reshape(1, -1)
+        action = self.session.run([self.output_name], {self.input_name: obs_array})[0]
+        return action.flatten(), None
+
 def get_latest_model(checkpoint_dir):
     """
     Busca o checkpoint mais recente na pasta de checkpoints.
@@ -26,7 +38,7 @@ def enjoy():
 
     if len(sys.argv) > 1:
         arg1 = sys.argv[1]
-        if arg1 in ("front", "back"):
+        if arg1 in ("front", "back", "walk"):
             mode = arg1
             if len(sys.argv) > 2:
                 specific_model = sys.argv[2]
@@ -36,6 +48,8 @@ def enjoy():
             # Tenta inferir o modo pelo caminho do arquivo
             if "back" in arg1.lower():
                 mode = "back"
+            elif "walk" in arg1.lower():
+                mode = "walk"
             else:
                 mode = "front"
     
@@ -55,7 +69,7 @@ def enjoy():
     print(f"Modo: {mode.upper()}")
     
     if specific_model:
-        model_path = specific_model.replace(".zip", "")
+        model_path = specific_model
         model_type = "ESPECÍFICO"
     else:
         model_path, model_type = get_latest_model(checkpoint_dir)
@@ -63,7 +77,10 @@ def enjoy():
 
     if model_path:
         try:
-            model = PPO.load(model_path, env=env)
+            if model_path.endswith(".onnx"):
+                model = ONNXWrapper(model_path)
+            else:
+                model = PPO.load(model_path.replace(".zip", ""), env=env)
             print(f"[{model_type}] Carregado: {os.path.basename(model_path)}")
         except Exception as e:
             print(f"Erro ao carregar modelo: {e}")

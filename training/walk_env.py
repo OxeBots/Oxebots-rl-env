@@ -8,6 +8,8 @@ from scipy.spatial.transform import Rotation as R
 class WalkEnv(BaseRobotEnv):
     """Ambiente de treinamento para locomoção bípede do robô T1."""
 
+    metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
+
     # Controle PD (mesmos valores do walk.py runtime)
     PD_KP = 25.0
     PD_KD = 0.6
@@ -17,8 +19,10 @@ class WalkEnv(BaseRobotEnv):
     STANDING_HEIGHT = 0.65
     FALL_THRESHOLD = 0.30
 
-    def __init__(self, model_path=None):
+    def __init__(self, model_path=None, render_mode=None):
         super().__init__(model_path)
+        self.render_mode = render_mode
+        self.renderer = None
 
         # Observation space: 69 (joints interleaved) + 3 (gyro) + 3 (vel cmd) + 3 (gravity) = 78
         self.observation_space = spaces.Box(
@@ -116,7 +120,7 @@ class WalkEnv(BaseRobotEnv):
         return self._get_obs(), {}
 
     def compute_reward(self, action):
-        reward = 0.0
+        reward = 1.0  # Bônus de sobrevivência (Survival Bonus)
 
         # === VELOCIDADE (Componente dominante) ===
         # Converter velocidade global para frame local do robô
@@ -177,14 +181,26 @@ class WalkEnv(BaseRobotEnv):
 
         # 9. Penalidade por contato indevido (mãos, antebraços, canelas)
         undesired_contact = contacts[0] + contacts[1] + contacts[4] + contacts[5] + contacts[6] + contacts[7]
-        reward -= 5.0 * undesired_contact
+        reward -= 0.5 * undesired_contact
 
         # 10. Bônus por contato dos pés
         feet_contact = contacts[2] + contacts[3]
         reward += 0.2 * feet_contact
 
         # === TERMINAÇÃO PRECOCE ===
-        if torso_height < self.FALL_THRESHOLD:
-            reward -= 50.0
+        # O fato do episódio terminar (truncando o survival bonus futuro) já é penalidade suficiente
+        # Removido a penalidade explícita de -50.0 para não criar abismos de gradiente.
 
         return reward
+    
+    def render(self):
+        if self.render_mode == "rgb_array":
+            if self.renderer is None:
+                self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+            self.renderer.update_scene(self.data, camera=-1)
+            return self.renderer.render()
+        
+    def close(self):
+        if self.renderer is not None:
+            self.renderer.close()
+            self.renderer = None

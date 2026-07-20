@@ -6,4 +6,6 @@ tensorboard
 scipy
 pyyaml
 wandb
+onnxruntime
 moviepy
+onnx
