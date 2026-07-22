@@ -1,5 +1,6 @@
 import gymnasium as gym
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from getup_env import GetUpFrontEnv, GetUpBackEnv
 from walk_env import WalkEnv
 import mujoco.viewer
@@ -31,6 +32,13 @@ def get_latest_model(checkpoint_dir):
         return latest_file.replace(".zip", ""), "CHECKPOINT"
 
     return None, None
+
+def find_vecnormalize_stats(model_dir):
+    """Busca o arquivo VecNormalize mais recente na pasta de modelos."""
+    pkl_files = glob.glob(os.path.join(model_dir, "vecnormalize_*.pkl"))
+    if pkl_files:
+        return max(pkl_files, key=os.path.getctime)
+    return None
 
 def enjoy():
     mode = "front"
@@ -74,6 +82,17 @@ def enjoy():
     else:
         model_path, model_type = get_latest_model(checkpoint_dir)
 
+    # Para walk com modelos SB3: carregar VecNormalize stats se disponível
+    vec_normalize = None
+    if mode == "walk" and model_path and not model_path.endswith(".onnx"):
+        stats_path = find_vecnormalize_stats(model_dir)
+        if stats_path:
+            # Wrapa o env em DummyVecEnv + VecNormalize para aplicar as mesmas stats do treino
+            vec_env = DummyVecEnv([lambda: env])
+            vec_normalize = VecNormalize.load(stats_path, vec_env)
+            vec_normalize.training = False     # Não atualizar stats durante inferência
+            vec_normalize.norm_reward = False   # Não normalizar reward na visualização
+            print(f"VecNormalize carregado: {os.path.basename(stats_path)}")
 
     if model_path:
         try:
@@ -89,7 +108,11 @@ def enjoy():
         print(f"Nenhum modelo ou checkpoint encontrado. Usando ações aleatórias.")
         model = None
 
-    obs, _ = env.reset()
+    # Reset: usar vec_normalize se disponível, senão env direto
+    if vec_normalize is not None:
+        obs = vec_normalize.reset()
+    else:
+        obs, _ = env.reset()
     
     # Walk: exibir e opcionalmente sobrescrever o comando de velocidade
     if mode == "walk":
@@ -114,11 +137,21 @@ def enjoy():
             step_start = time.time()
             
             if model:
-                action, _ = model.predict(obs, deterministic=True)
+                if vec_normalize is not None:
+                    # Obs já normalizada pelo VecNormalize
+                    action, _ = model.predict(obs, deterministic=True)
+                else:
+                    action, _ = model.predict(obs, deterministic=True)
             else:
                 action = env.action_space.sample()
-                                
-            obs, reward, done, trunc, _ = env.step(action)
+            
+            if vec_normalize is not None:
+                obs, reward, done, info = vec_normalize.step(np.array([action]))
+                obs = obs[0] if len(obs.shape) > 1 else obs
+                done = done[0] if hasattr(done, '__len__') else done
+            else:
+                obs, reward, done, trunc, _ = env.step(action)
+                done = done or trunc
             
             viewer.sync()
             
@@ -126,8 +159,11 @@ def enjoy():
             if elapsed < 0.02:
                 time.sleep(0.02 - elapsed)
             
-            if done or trunc:
-                obs, _ = env.reset()
+            if done:
+                if vec_normalize is not None:
+                    obs = vec_normalize.reset()
+                else:
+                    obs, _ = env.reset()
                 if mode == "walk":
                     print(f"Novo episódio — Comando: vx={env.velocity_command[0]:.2f}, "
                           f"vy={env.velocity_command[1]:.2f}, yaw={env.velocity_command[2]:.2f}")

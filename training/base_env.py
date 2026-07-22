@@ -97,6 +97,11 @@ class BaseRobotEnv(gym.Env):
         self.max_steps = 1000
         self.current_step = 0
         self.prev_action = None
+        self.total_training_steps = 0
+
+    def set_training_progress(self, total_steps):
+        """Atualizado pelo callback de curriculum durante o treinamento."""
+        self.total_training_steps = total_steps
 
     def _get_contact_info(self):
         """Detecta contatos com o chão. Retorna 8 flags binárias."""
@@ -127,7 +132,7 @@ class BaseRobotEnv(gym.Env):
         raise NotImplementedError
 
     @abstractmethod
-    def compute_reward(self, action):
+    def compute_reward(self, action, *args, **kwargs):
         """Cada ambiente define sua própria recompensa."""
         raise NotImplementedError
 

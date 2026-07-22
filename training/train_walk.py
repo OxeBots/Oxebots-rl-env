@@ -1,15 +1,28 @@
 import gymnasium as gym
+import torch
 import wandb
 import os
 import glob
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, CallbackList, BaseCallback
 from walk_env import WalkEnv
 from wandb.integration.sb3 import WandbCallback
 from datetime import datetime
+
+
+class CurriculumCallback(BaseCallback):
+    """Propaga o progresso de treinamento para os ambientes (curriculum learning)."""
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps % 10_000 == 0:
+            self.training_env.env_method("set_training_progress", self.num_timesteps)
+        return True
+
 
 class UploadVideoCallback(BaseCallback):
     def __init__(self, video_folder: str, verbose=0):
@@ -40,17 +53,21 @@ def train():
     print(f"Configurando {num_cpu} ambientes em paralelo...")
 
     vec_env = make_vec_env(WalkEnv, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
+    # Normalização de observações e recompensas — estabiliza significativamente o PPO
+    vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
-    # Hiperparâmetros ajustados para estabilidade PPO em locomoção
+    # Hiperparâmetros otimizados para locomoção bípede
     learning_rate = 3e-4
-    n_steps = 4096
-    batch_size = 4096
-    n_epochs = 5
+    n_steps = 4096            # Mais dados por update (era 2048)
+    batch_size = 512           # Mini-batches menores → mais diversidade de gradiente (era 2048)
+    n_epochs = 5               # Reduzido de 10 → evitar overfitting no buffer
     gamma = 0.99
     total_timesteps = 100_000_000
-    gae_lambda=0.95
-    ent_coef=0.005
-    max_grad_norm=1.0
+    gae_lambda = 0.95
+    ent_coef = 0.005           # Reduzido de 0.01 → permitir convergência mais rápida
+    max_grad_norm = 0.5        # Reduzido de 1.0 → mais estabilidade
+    clip_range = 0.2
+    vf_coef = 0.5
 
     model = PPO(
         "MlpPolicy", vec_env, verbose=1,
@@ -62,9 +79,14 @@ def train():
         gae_lambda=gae_lambda,
         ent_coef=ent_coef,
         max_grad_norm=max_grad_norm,
+        clip_range=clip_range,
+        vf_coef=vf_coef,
         tensorboard_log=log_dir,
         device="cpu",
-        policy_kwargs=dict(net_arch=dict(pi=[512, 256, 128], vf=[512, 256, 128])),
+        policy_kwargs=dict(
+            net_arch=dict(pi=[256, 256, 128], vf=[256, 256, 128]),
+            activation_fn=torch.nn.ELU,
+        ),
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -82,7 +104,13 @@ def train():
         "gae_lambda": gae_lambda,
         "ent_coef": ent_coef,
         "max_grad_norm": max_grad_norm,
+        "clip_range": clip_range,
+        "vf_coef": vf_coef,
         "n_envs": num_cpu,
+        "net_arch": "pi=[256,256,128] vf=[256,256,128]",
+        "activation": "ELU",
+        "vec_normalize": True,
+        "curriculum_learning": True,
     }
 
     # Inicializar o WandB
@@ -110,8 +138,13 @@ def train():
         return env_eval
 
     vec_env_eval = DummyVecEnv([make_env])
+    # Eval env PRECISA de VecNormalize para sync com o training env
+    vec_env_eval = VecNormalize(vec_env_eval, norm_obs=True, norm_reward=False, clip_obs=10.0)
+    vec_env_eval.training = False  # Não atualizar stats durante avaliação
 
     callbacks = CallbackList([
+        CurriculumCallback(),
+
         CheckpointCallback(
             save_freq=max(1_000_000 // num_cpu, 1),
             save_path=checkpoint_dir,
@@ -122,13 +155,13 @@ def train():
             vec_env_eval,
             best_model_save_path=os.path.join(model_dir, "best/"),
             log_path=log_dir,
-            eval_freq=max(250_000 // num_cpu, 1),
+            eval_freq=max(1_000_000 // num_cpu, 1),
             n_eval_episodes=5,
             deterministic=True,
         ),
 
         WandbCallback(
-        gradient_save_freq=100,
+        gradient_save_freq=1000,
         model_save_path=os.path.join(model_dir, run.id),
         verbose=2,
     ),
@@ -140,8 +173,11 @@ def train():
     print(f"=== Treinamento Walk ===")
     print(f"  Ambientes paralelos: {num_cpu}")
     print(f"  Buffer por update: {model.n_steps * num_cpu} steps")
+    print(f"  Batch size: {batch_size}")
     print(f"  Total timesteps: {total_timesteps:,}")
     print(f"  Device: {model.device}")
+    print(f"  VecNormalize: ON")
+    print(f"  Curriculum: ON")
     print(f"  Modelo final: {final_model_path}")
     print()
 
@@ -156,7 +192,10 @@ def train():
         print("\nTreinamento interrompido pelo usuário.")
 
     model.save(final_model_path)
+    # Salvar VecNormalize stats para uso em inferência
+    vec_env.save(os.path.join(model_dir, f"vecnormalize_{timestamp}.pkl"))
     print(f"Modelo salvo: {final_model_path}")
+    print(f"VecNormalize salvo: vecnormalize_{timestamp}.pkl")
 
     print("Limpando checkpoints intermediários...")
     for file in os.listdir(checkpoint_dir):

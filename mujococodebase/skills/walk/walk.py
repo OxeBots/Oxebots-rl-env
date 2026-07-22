@@ -91,12 +91,12 @@ class Walk(Skill):
         else:
             rel_orientation = orientation * 0.3
 
-        rel_orientation = np.clip(rel_orientation, -0.25, 0.25)
+        rel_orientation = np.clip(rel_orientation, -1.0, 1.0)
 
         velocity = np.concat([velocity, np.array([rel_orientation])], axis=0)
 
-        velocity[0] = np.clip(velocity[0], -0.5, 0.5)
-        velocity[1] = np.clip(velocity[1], -0.25, 0.25)
+        velocity[0] = np.clip(velocity[0], -1.0, 1.0)
+        velocity[1] = np.clip(velocity[1], -0.5, 0.5)
 
         radian_joint_positions = np.deg2rad(list(robot.motor_positions.values()))
         radian_joint_speeds = np.deg2rad(list(robot.motor_speeds.values()))
