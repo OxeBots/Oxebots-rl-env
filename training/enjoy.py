@@ -94,9 +94,17 @@ def enjoy():
     # Walk: exibir e opcionalmente sobrescrever o comando de velocidade
     if mode == "walk":
         if len(sys.argv) > 2:
-            cmd = [float(x) for x in sys.argv[2].split()]
-            env.velocity_command = np.array(cmd)
-            print(f"Comando manual: vx={cmd[0]:.2f}, vy={cmd[1]:.2f}, yaw={cmd[2]:.2f}")
+            try:
+                cmd_str = " ".join(sys.argv[2:])
+                cmd = [float(x) for x in cmd_str.replace(',', ' ').split()]
+                if len(cmd) >= 3:
+                    env.velocity_command = np.array(cmd[:3])
+                    print(f"Comando manual: vx={cmd[0]:.2f}, vy={cmd[1]:.2f}, yaw={cmd[2]:.2f}")
+                else:
+                    raise ValueError("Comando incompleto")
+            except (ValueError, IndexError):
+                print(f"Comando ignorado. Usando default: vx={env.velocity_command[0]:.2f}, "
+                      f"vy={env.velocity_command[1]:.2f}, yaw={env.velocity_command[2]:.2f}")
         else:
             print(f"Comando: vx={env.velocity_command[0]:.2f}, "
                   f"vy={env.velocity_command[1]:.2f}, yaw={env.velocity_command[2]:.2f}")
