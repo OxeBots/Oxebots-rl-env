@@ -47,7 +47,7 @@ def train():
     batch_size = 4096
     n_epochs = 5
     gamma = 0.99
-    total_timesteps = 50_000_000
+    total_timesteps = 100_000_000
     gae_lambda=0.95
     ent_coef=0.005
     max_grad_norm=1.0
