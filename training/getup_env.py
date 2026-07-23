@@ -27,9 +27,26 @@ class GetUpEnv(gym.Env):
         self.render_mode = render_mode
         self.renderer = None
 
-        if model_path is None:
+        if model_path is None or not os.path.exists(model_path):
             home = os.path.expanduser("~")
-            model_path = os.path.join(home, "rcssservermj/src/rcsssmj/resources/robots/T1/robot.xml")
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            candidates = [
+                os.path.abspath(os.path.join(current_dir, "..", "..", "mojucco_simulator3D", "src", "rcsssmj", "resources", "robots", "T1", "robot.xml")),
+                os.path.abspath(os.path.join(current_dir, "..", "mojucco_simulator3D", "src", "rcsssmj", "resources", "robots", "T1", "robot.xml")),
+                os.path.join(home, "rcssservermj", "src", "rcsssmj", "resources", "robots", "T1", "robot.xml"),
+                os.path.join(home, "mojucco_simulator3D", "src", "rcsssmj", "resources", "robots", "T1", "robot.xml"),
+            ]
+            if "ROBOT_XML_PATH" in os.environ:
+                candidates.insert(0, os.environ["ROBOT_XML_PATH"])
+
+            model_path = None
+            for cand in candidates:
+                if cand and os.path.exists(cand):
+                    model_path = cand
+                    break
+
+            if model_path is None:
+                raise FileNotFoundError(f"Não foi possível encontrar robot.xml. Caminhos buscados: {candidates}")
 
         super().__init__()
 
@@ -37,7 +54,7 @@ class GetUpEnv(gym.Env):
         with open(model_path, 'r') as f:
             xml_string = f.read()
 
-        mesh_dir = os.path.join(os.path.dirname(model_path), "meshes")
+        mesh_dir = os.path.join(os.path.dirname(model_path), "meshes").replace('\\', '/')
         xml_string = re.sub(r'meshdir="[^"]*"', f'meshdir="{mesh_dir}"', xml_string)
 
         if "plane" not in xml_string:

@@ -201,27 +201,40 @@ def train(onnx_path):
     buffer = RolloutBuffer(num_steps_per_env, num_envs, obs_dim, action_dim, device)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run = wandb.init(
-        project="oxebots_walk_train",
-        name=f"ppo-walk-finetune-{timestamp}",
-        config={
-            "num_envs": num_envs,
-            "num_steps_per_env": num_steps_per_env,
-            "num_learning_epochs": num_learning_epochs,
-            "num_mini_batches": num_mini_batches,
-            "clip_param": clip_param,
-            "gamma": gamma,
-            "lam": lam,
-            "entropy_coef": entropy_coef,
-            "learning_rate": learning_rate,
-            "max_grad_norm": max_grad_norm,
-            "desired_kl": desired_kl,
-            "init_noise_std": init_noise_std,
-            "total_timesteps": total_timesteps,
-            "resumed_from": onnx_path,
-        },
-        save_code=True,
-    )
+    wandb_config = {
+        "num_envs": num_envs,
+        "num_steps_per_env": num_steps_per_env,
+        "num_learning_epochs": num_learning_epochs,
+        "num_mini_batches": num_mini_batches,
+        "clip_param": clip_param,
+        "gamma": gamma,
+        "lam": lam,
+        "entropy_coef": entropy_coef,
+        "learning_rate": learning_rate,
+        "max_grad_norm": max_grad_norm,
+        "desired_kl": desired_kl,
+        "init_noise_std": init_noise_std,
+        "total_timesteps": total_timesteps,
+        "resumed_from": onnx_path,
+    }
+    wandb_mode = os.getenv("WANDB_MODE")
+    try:
+        run = wandb.init(
+            project="oxebots_walk_train",
+            name=f"ppo-walk-finetune-{timestamp}",
+            config=wandb_config,
+            save_code=True,
+            mode=wandb_mode,
+        )
+    except Exception as e:
+        print(f"Aviso: WandB login/conexão falhou ({e}). Executando em modo offline...")
+        run = wandb.init(
+            project="oxebots_walk_train",
+            name=f"ppo-walk-finetune-{timestamp}",
+            config=wandb_config,
+            save_code=True,
+            mode="offline",
+        )
 
     obs = torch.from_numpy(vec_env.reset()).float().to(device)
     ep_rewards = np.zeros(num_envs)

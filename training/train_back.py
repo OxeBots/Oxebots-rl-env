@@ -75,14 +75,27 @@ def train():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     final_model_path = os.path.join(model_dir, f"ppo_getup_back_{timestamp}")
 
-    # Inicializar o WandB
-    run = wandb.init(
-        project="bahiart-mujoco-getup",
-        name=f"ppo-getup-back-{timestamp}",
-        config=config,       
-        sync_tensorboard=True,  # Sincroniza com TensorBoard
-        save_code=True,         # Salva o estado do código no wandb
-    )
+    # Inicializar o WandB (com fallback para modo offline se não houver login)
+    wandb_mode = os.getenv("WANDB_MODE")
+    try:
+        run = wandb.init(
+            project="bahiart-mujoco-getup",
+            name=f"ppo-getup-back-{timestamp}",
+            config=config,       
+            sync_tensorboard=True,  # Sincroniza com TensorBoard
+            save_code=True,         # Salva o estado do código no wandb
+            mode=wandb_mode,
+        )
+    except Exception as e:
+        print(f"Aviso: WandB login/conexão falhou ({e}). Executando em modo offline...")
+        run = wandb.init(
+            project="bahiart-mujoco-getup",
+            name=f"ppo-getup-back-{timestamp}",
+            config=config,       
+            sync_tensorboard=True,
+            save_code=True,
+            mode="offline",
+        )
 
     # Configuração de Ambiente para Gravação de Vídeo no WandB
     gym.register(

@@ -113,14 +113,27 @@ def train():
         "curriculum_learning": True,
     }
 
-    # Inicializar o WandB
-    run = wandb.init(
-        project="oxebots_walk_train",
-        name=f"ppo-walk-{timestamp}",
-        config=config,       
-        sync_tensorboard=True,  # Sincroniza com TensorBoard
-        save_code=True,         # Salva o estado do código no wandb
-    )
+    # Inicializar o WandB (com fallback para modo offline se não houver login)
+    wandb_mode = os.getenv("WANDB_MODE")
+    try:
+        run = wandb.init(
+            project="oxebots_walk_train",
+            name=f"ppo-walk-{timestamp}",
+            config=config,       
+            sync_tensorboard=True,  # Sincroniza com TensorBoard
+            save_code=True,         # Salva o estado do código no wandb
+            mode=wandb_mode,
+        )
+    except Exception as e:
+        print(f"Aviso: WandB login/conexão falhou ({e}). Executando em modo offline...")
+        run = wandb.init(
+            project="oxebots_walk_train",
+            name=f"ppo-walk-{timestamp}",
+            config=config,       
+            sync_tensorboard=True,
+            save_code=True,
+            mode="offline",
+        )
 
     gym.register(
         id="walkEnv-v0",
