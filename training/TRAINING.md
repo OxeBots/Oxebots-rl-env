@@ -30,6 +30,13 @@ python3 training/train_front.py
 python3 training/train_back.py
 ```
 
+### C. Treinar 100% na GPU (MuJoCo MJX + Brax) — Ultra Acelerado
+Treina física + rede neural 100% na VRAM da GPU (4096+ ambientes paralelos):
+```bash
+python3 training/train_front_mjx.py
+```
+
+
 ## 3. Monitoramento
 
 O treinamento pode ser monitorado de duas formas simultâneas:
