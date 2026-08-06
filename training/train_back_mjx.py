@@ -12,7 +12,7 @@ try:
 except ImportError:
     HAS_BRAX_TRAIN = False
 
-# Monkeypatch para compatibilidade com versões recentes do JAX no Brax
+
 if not hasattr(jax, 'device_put_replicated'):
     import jax.numpy as jnp
     def _device_put_replicated(x, devices):
@@ -70,15 +70,15 @@ def train():
         print("Instale com: pip install brax wandb mujoco-mjx")
         return
 
-    # Pastas de log e modelo
+   
     log_dir = "./training/logs/back_mjx/"
     model_dir = "./training/models/back_mjx/"
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
 
-    # Hiperparâmetros acelerados em GPU
+    # hip
     total_timesteps = 100_000_000
-    num_envs = 4096  # 4096 ambientes paralelos rodando 100% dentro da VRAM da GPU!
+    num_envs = 4096  
     learning_rate = 3e-4
     batch_size = 2048
     unroll_length = 20
@@ -88,7 +88,7 @@ def train():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name = f"ppo-getup-back-mjx-{timestamp}"
 
-    # Inicializar WandB
+    # wandB
     run = wandb.init(
         project="bahiart-mujoco-getup-mjx",
         name=run_name,
@@ -139,7 +139,7 @@ def train():
         render_and_log_video(env, make_policy_fn, params, num_steps)
 
     try:
-        # Rodar o PPO compilado em GPU via JAX / Brax
+        
         make_inference_fn, params, _ = ppo_train.train(
             environment=env,
             num_timesteps=total_timesteps,

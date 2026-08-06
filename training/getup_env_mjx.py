@@ -61,7 +61,7 @@ class BaseGetUpMjxEnv(PipelineEnv):
         self.mj_model = mujoco.MjModel.from_xml_string(xml_string)
         sys = mjcf.load_model(self.mj_model)
 
-        # Mapeamento de corpos e juntas
+        # mapeamento de corpos e juntas
         try:
             self.torso_id = self.mj_model.body('torso').id
         except KeyError:
@@ -92,7 +92,7 @@ class BaseGetUpMjxEnv(PipelineEnv):
             self._get_qadr('Right_Ankle_Pitch'),
         ])
 
-        # Carregar YAML de keyframes
+        # carregar YAML 
         if keyframe_yaml is None and self.DEFAULT_YAML_NAME:
             base_dir = os.path.dirname(__file__)
             possible_paths = [
@@ -121,7 +121,7 @@ class BaseGetUpMjxEnv(PipelineEnv):
 
 
 class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
-    """Levantamento de Frente (Front) 100% acelerado em GPU via MuJoCo MJX."""
+    
     DEFAULT_YAML_NAME = "get_up_front.yaml"
 
     def reset(self, rng: jax.Array) -> State:
@@ -146,21 +146,21 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
         obs = self._get_obs(pipeline_state)
 
-        # Utiliza torso_id dinâmico para pegar a posição z do torso na GPU
+        # utiliza torso_id dinâmico para pegar a posição z do torso 
         torso_pos = pipeline_state.x.pos[self.torso_id]
         torso_height = torso_pos[2]
         
         torso_rot = pipeline_state.x.rot[self.torso_id]
         torso_up = 1.0 - 2.0 * (torso_rot[1]**2 + torso_rot[2]**2)
 
-        # Recompensa de Altura e Postura
+        # recompensa de altura e postura
         height_progress = jnp.clip((torso_height - 0.30) / (0.65 - 0.30), 0.0, 1.0)
         height_reward = (height_progress ** 3) * 50.0 * jnp.maximum(0.0, torso_up)
 
-        # Recompensa de Mimic (se YAML foi carregado)
+        # recompensa de Mimic (se YAML foi carregado)
         mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-3.0 * (1.0 - jnp.maximum(0.0, torso_up))), 0.0)
 
-        # Shaping Termos
+       
         waist_qpos = pipeline_state.qpos[self._waist_idx]
         waist_penalty = -10.0 * (waist_qpos ** 2)
 
@@ -203,7 +203,7 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
 
 
 class GetUpBackMjxEnv(BaseGetUpMjxEnv):
-    """Levantamento de Costas (Back) 100% acelerado em GPU via MuJoCo MJX."""
+    
     DEFAULT_YAML_NAME = "get_up_back.yaml"
 
     def reset(self, rng: jax.Array) -> State:
