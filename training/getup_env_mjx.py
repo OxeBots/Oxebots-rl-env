@@ -118,6 +118,10 @@ class BaseGetUpMjxEnv(PipelineEnv):
             self._get_qadr('Right_Ankle_Pitch'),
         ])
 
+        self._pitch_indices = jnp.array([0, 2, 3, 5, 6])
+        self._roll_indices = jnp.array([1, 4])
+        self._leg_pitch_indices = jnp.array([0, 2, 3])
+
         # Carregar YAML 
         if keyframe_yaml is None and self.DEFAULT_YAML_NAME:
             base_dir = os.path.dirname(__file__)
@@ -229,8 +233,8 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
 
         left_j = pipeline_state.qpos[self.left_joints_idx]
         right_j = pipeline_state.qpos[self.right_joints_idx]
-        pitch_diff = left_j.at[jnp.array([0, 2, 3, 5, 6])].get() - right_j.at[jnp.array([0, 2, 3, 5, 6])].get()
-        roll_sum = left_j.at[jnp.array([1, 4])].get() + right_j.at[jnp.array([1, 4])].get()
+        pitch_diff = left_j[self._pitch_indices] - right_j[self._pitch_indices]
+        roll_sum = left_j[self._roll_indices] + right_j[self._roll_indices]
         symmetry_penalty = -2.5 * (jnp.mean(jnp.square(pitch_diff)) + jnp.mean(jnp.square(roll_sum)))
 
         action_penalty = -0.01 * jnp.sum(jnp.square(action))
@@ -334,7 +338,7 @@ class GetUpBackMjxEnv(BaseGetUpMjxEnv):
 
         left_legs = pipeline_state.qpos[self.left_joints_idx[3:]]
         right_legs = pipeline_state.qpos[self.right_joints_idx[3:]]
-        leg_pitch_diff = left_legs.at[jnp.array([0, 2, 3])].get() - right_legs.at[jnp.array([0, 2, 3])].get()
+        leg_pitch_diff = left_legs[self._leg_pitch_indices] - right_legs[self._leg_pitch_indices]
         leg_roll_sum = left_legs[1] + right_legs[1]
         leg_symmetry_penalty = -2.5 * (jnp.mean(jnp.square(leg_pitch_diff)) + jnp.square(leg_roll_sum))
 

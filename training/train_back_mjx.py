@@ -54,13 +54,13 @@ def train():
 
     # Hiperparâmetros otimizados para VRAM (2048 ambientes paralelos 100% em GPU)
     total_timesteps = 100_000_000
-    num_envs = 2048  # Ambientes paralelos rodando 100% dentro da GPU
+    num_envs = 2048  # ambientes paralelos rodando 
     episode_length = 1000  # Tamanho do episódio (passos de simulação por episódio)
     learning_rate = 3e-4
     unroll_length = 32
     batch_size = 2048
-    num_minibatches = 32
-    num_updates_per_batch = 8
+    num_minibatches = 8
+    num_updates_per_batch = 4
     num_evals = 20  # Log por epoch/update (sem interrupções frequentes de transferência GPU-CPU)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
