@@ -51,7 +51,6 @@ def enjoy():
     if params is not None:
         try:
             import jax
-            import jax.numpy as jnp
             from brax.training.agents.ppo import networks as ppo_networks
 
             ppo_network = ppo_networks.make_ppo_networks(
@@ -60,59 +59,61 @@ def enjoy():
             )
             make_policy = ppo_networks.make_inference_fn(ppo_network)
             jit_inference_fn = jax.jit(make_policy(params))
-            policy = lambda obs: jit_inference_fn(obs, jax.random.PRNGKey(0))[0]
+            policy = lambda obs, key: jit_inference_fn(obs, key)[0]
             print("🧠 Rede neural da política carregada para inferência!")
         except Exception as e:
             print(f"⚠️ Não foi possível compilar a política para inferência: {e}")
 
-    # Inicializa estrutura de dados da física MuJoCo
+    import jax
+    jit_reset = jax.jit(env.reset)
+    jit_step = jax.jit(env.step)
+
+    rng = jax.random.PRNGKey(0)
+    rng, reset_rng = jax.random.split(rng)
+    state = jit_reset(reset_rng)
+
+    # Inicializa estrutura de dados da física MuJoCo para renderização
     mj_data = mujoco.MjData(env.mj_model)
-    mj_data.qpos[:] = np.array(env.sys.init_q)
 
-    if mode == "back":
-        mj_data.qpos[2] = 0.25
-        mj_data.qpos[3] = 0.707
-        mj_data.qpos[4] = 0.0
-        mj_data.qpos[5] = -0.707
-        mj_data.qpos[6] = 0.0
-    else:
-        mj_data.qpos[2] = 0.25
-        mj_data.qpos[3] = 0.707
-        mj_data.qpos[4] = 0.0
-        mj_data.qpos[5] = 0.707
-        mj_data.qpos[6] = 0.0
+    max_steps_per_episode = 500  # Reinicia o episódio a cada 500 passos (aprox. 10s)
+    step_count = 0
 
-    # Inicializa simulação física local para visualização gráfica
+    print("🚀 Iniciando simulação física...")
+
     with mujoco.viewer.launch_passive(env.mj_model, mj_data) as viewer:
         while viewer.is_running():
             step_start = time.time()
 
+            rng, policy_rng = jax.random.split(rng)
+
             if policy is not None:
                 try:
-                    import jax.numpy as jnp
-                    torso_height = mj_data.qpos[2]
-                    height_progress = float(np.clip((torso_height - 0.15) / (0.65 - 0.15), 0.0, 1.0))
-                    target_pose = env.get_target_pose(jnp.array(height_progress))
-
-                    actuated_qpos = mj_data.qpos[7:30]
-                    joint_err = np.array(target_pose) - actuated_qpos
-                    obs = np.concatenate([mj_data.qpos, mj_data.qvel, joint_err])
-                    obs = np.nan_to_num(obs, nan=0.0, posinf=100.0, neginf=-100.0)
-                    obs = np.clip(obs, -100.0, 100.0)
-
-                    action = np.array(policy(obs))
+                    action = policy(state.obs, policy_rng)
                 except Exception as e:
-                    action = np.random.uniform(-1.0, 1.0, size=(env.mj_model.nu,))
+                    action = jax.random.uniform(policy_rng, shape=(env.action_size,), minval=-1.0, maxval=1.0)
             else:
-                action = np.random.uniform(-1.0, 1.0, size=(env.mj_model.nu,))
+                action = jax.random.uniform(policy_rng, shape=(env.action_size,), minval=-1.0, maxval=1.0)
 
-            mj_data.ctrl[:] = action
-            n_substeps = getattr(env, 'n_frames', 5)
-            for _ in range(n_substeps):
-                mujoco.mj_step(env.mj_model, mj_data)
+            # Executa passo de simulação via Brax / MJX
+            state = jit_step(state, action)
+            step_count += 1
 
-            frame_dt = env.mj_model.opt.timestep * n_substeps
-            time_until_next_step = frame_dt - (time.time() - step_start)
+            # Atualiza pose e velocidade no visualizador 3D do MuJoCo
+            mj_data.qpos[:] = np.array(state.pipeline_state.qpos)
+            mj_data.qvel[:] = np.array(state.pipeline_state.qvel)
+            mujoco.mj_forward(env.mj_model, mj_data)
+
+            # Reinicia se o episódio terminar ou atingir o limite de tempo
+            is_done = bool(np.array(state.done) > 0.5) or step_count >= max_steps_per_episode
+            if is_done:
+                print("🔄 Reiniciando episódio...")
+                rng, reset_rng = jax.random.split(rng)
+                state = jit_reset(reset_rng)
+                step_count = 0
+
+            # Manter taxa de quadros realista (~50 Hz / 20ms)
+            dt = float(env.dt) if hasattr(env, 'dt') else 0.02
+            time_until_next_step = dt - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
 
