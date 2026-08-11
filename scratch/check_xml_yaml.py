@@ -3,8 +3,8 @@ import yaml
 import mujoco
 
 def check():
-    home = os.path.expanduser("~")
-    model_path = os.path.join(home, "rcssservermj/src/rcsssmj/resources/robots/T1/robot.xml")
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    model_path = os.path.join(repo_root, "resources", "robots", "T1", "robot.xml")
     
     if os.path.exists(model_path):
         model = mujoco.MjModel.from_xml_path(model_path)
@@ -12,10 +12,10 @@ def check():
         print(f"1. [XML] ID do torso no MjModel: {torso_id}")
         print(f"   Nome do corpo torso_id: {model.body(torso_id).name}")
     else:
-        print(f"1. [XML] MjModel robot.xml não encontrado no caminho padrão (~/rcssservermj/...). Será carregado dinamicamente no treino.")
+        print(f"1. [XML] MjModel robot.xml não encontrado em {model_path}.")
 
-    yaml_front = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "mujococodebase", "skills", "keyframe", "get_up", "get_up_front.yaml"))
-    yaml_back = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "mujococodebase", "skills", "keyframe", "get_up", "get_up_back.yaml"))
+    yaml_front = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "resources", "skills", "keyframe", "get_up", "get_up_front.yaml"))
+    yaml_back = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "resources", "skills", "keyframe", "get_up", "get_up_back.yaml"))
 
     print(f"\n2. [YAML FRONT] Existe: {os.path.exists(yaml_front)}")
     if os.path.exists(yaml_front):

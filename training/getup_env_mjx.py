@@ -42,8 +42,8 @@ class BaseGetUpMjxEnv(PipelineEnv):
             raise ImportError("Brax e MJX são necessários. Instale com: pip install brax mujoco-mjx")
 
         if model_path is None:
-            home = os.path.expanduser("~")
-            model_path = os.path.join(home, "rcssservermj/src/rcsssmj/resources/robots/T1/robot.xml")
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            model_path = os.path.join(repo_root, "resources", "robots", "T1", "robot.xml")
 
         with open(model_path, 'r') as f:
             xml_string = f.read()
@@ -95,14 +95,8 @@ class BaseGetUpMjxEnv(PipelineEnv):
         # carregar YAML 
         if keyframe_yaml is None and self.DEFAULT_YAML_NAME:
             base_dir = os.path.dirname(__file__)
-            possible_paths = [
-                os.path.join(base_dir, "..", "mujococodebase", "skills", "keyframe", "get_up", self.DEFAULT_YAML_NAME),
-                os.path.join(base_dir, "keyframe", "get_up", self.DEFAULT_YAML_NAME),
-            ]
-            for p in possible_paths:
-                if os.path.exists(p):
-                    keyframe_yaml = p
-                    break
+            repo_root = os.path.abspath(os.path.join(base_dir, ".."))
+            keyframe_yaml = os.path.join(repo_root, "resources", "skills", "keyframe", "get_up", self.DEFAULT_YAML_NAME)
 
         self.keyframes, self.keyframe_deltas = _load_keyframes_from_yaml(keyframe_yaml)
         self._has_mimic = len(self.keyframes) > 0
@@ -117,7 +111,9 @@ class BaseGetUpMjxEnv(PipelineEnv):
             return 0
 
     def _get_obs(self, pipeline_state) -> jax.Array:
-        return jnp.concatenate([pipeline_state.qpos, pipeline_state.qvel])
+        obs = jnp.concatenate([pipeline_state.qpos, pipeline_state.qvel])
+        obs = jnp.nan_to_num(obs, nan=0.0, posinf=100.0, neginf=-100.0)
+        return jnp.clip(obs, -100.0, 100.0)
 
 
 class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
@@ -160,7 +156,6 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
         # recompensa de Mimic (se YAML foi carregado)
         mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-3.0 * (1.0 - jnp.maximum(0.0, torso_up))), 0.0)
 
-       
         waist_qpos = pipeline_state.qpos[self._waist_idx]
         waist_penalty = -10.0 * (waist_qpos ** 2)
 
@@ -185,12 +180,15 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
 
         standing_bonus = jnp.where(
             (torso_height > 0.65) & (torso_up > 0.9),
-            2005.0,
+            50.0,
             0.0
         )
 
         total_reward = height_reward + mimic_reward + waist_penalty + symmetry_penalty + action_penalty + tuck_reward + step_penalty + standing_bonus
-        done = jnp.where(torso_height < 0.05, 1.0, 0.0)
+        total_reward = jnp.nan_to_num(total_reward, nan=0.0, posinf=100.0, neginf=-100.0)
+        total_reward = jnp.clip(total_reward, -100.0, 100.0)
+
+        done = jnp.where(jnp.isnan(torso_height) | (torso_height < 0.05), 1.0, 0.0)
 
         metrics = {
             'reward_height': height_reward,
@@ -255,12 +253,15 @@ class GetUpBackMjxEnv(BaseGetUpMjxEnv):
 
         standing_bonus = jnp.where(
             (torso_height > 0.65) & (torso_up > 0.9),
-            510.0,
+            50.0,
             0.0
         )
 
         total_reward = height_reward + mimic_reward + waist_penalty + tuck_reward + leg_symmetry_penalty + action_penalty + step_penalty + standing_bonus
-        done = jnp.where(torso_height < 0.05, 1.0, 0.0)
+        total_reward = jnp.nan_to_num(total_reward, nan=0.0, posinf=100.0, neginf=-100.0)
+        total_reward = jnp.clip(total_reward, -100.0, 100.0)
+
+        done = jnp.where(jnp.isnan(torso_height) | (torso_height < 0.05), 1.0, 0.0)
 
         metrics = {
             'reward_height': height_reward,

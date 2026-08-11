@@ -1,119 +1,75 @@
-# BahiaRT Mujoco base code
+# OxeBots Training - Guia de Treinamento Especializado (100% GPU / MJX)
 
-This is a Python-based base code developed for the RCSSServerMJ. It was created to simplify the onboarding process for new teams joining the RoboCup 3D Soccer Simulation League using the Mujoco Simulator.
+Este guia descreve o sistema de treinamento ultra-acelerado do robô T1 para a equipe **OxeBots**, focado em manobras de levantar (frente/costas) 100% executadas na GPU via **MuJoCo MJX + Brax (JAX)**.
 
-This code was influenced by the early demonstrations from MagmaOffenburg team of a client for the RCSSServerMJ, and the FCPortugal base code for the SimSpark simulator.
+---
 
-## Installation
+## 1. Dependências e Instalação
 
-### Make sure the following are installed on your system:
-
-- Python ≥ 3.13
- > ⚠️ The project has been tested only with Python 3.13, but it will likely work with other versions as well.
-
-
-- Any Python dependency manager can be used, but **either Hatch or Poetry are recommended**.
-
-- **Poetry ≥ 2.0.0** ([Installation Guide](https://python-poetry.org/docs/#installing-with-pipx))  
-  **or**  
-- **Hatch ≥ 1.9.0** ([Installation Guide](https://hatch.pypa.io/latest/install/))
-
-### Install Dependencies
-The project dependencies are listed inside pyproject.toml
-
-Using **Hatch**:
-```bash
-hatch build
-```
-
-Using **Poetry**:
-```bash
-poetry install
-```
-
-## Instructions
-
-### Run an agent
-After installing the dependencies and setting up the environment, you can launch a player instance:
+Para rodar o treinamento acelerado em GPU, instale as bibliotecas necessárias no ambiente virtual:
 
 ```bash
-python3 run_player.py -n <player-number> -t <team-name>
+pip install -r training/requirements.txt
 ```
 
-Using **Hatch**:
+*(Pacotes principais: `jax[cuda12]`, `mujoco-mjx`, `brax`, `wandb`, `mujoco`, `pyyaml`).*
+
+---
+
+## 2. Estrutura de Treinamento (100% GPU na VRAM)
+
+O treinamento simula **4.096 ambientes paralelos simultaneamente** dentro da memória da GPU (RTX 3080), reduzindo o tempo de treino de 9 horas para ~10 a 20 minutos.
+
+### A. Treinar Levantamento de FRENTE (Front)
 ```bash
-hatch run python run_player.py -n <player-number> -t <team-name>
+python3 training/train_front_mjx.py
 ```
 
-Using **Poetry**:
+### B. Treinar Levantamento de COSTAS (Back)
 ```bash
-poetry run python run_player.py -n <player-number> -t <team-name>
+python3 training/train_back_mjx.py
 ```
 
-### Check for Syntax Errors
-Before running the simulation, it is recommended to check your code for syntax errors, especially after making manual changes:
+---
 
-```bash
-python3 -m compileall mujococodebase/
-```
+## 3. Monitoramento
 
-CLI parameter (a usage help is also available):
+O treinamento monitora logs em tempo real:
 
-- `--host <ip>` to specify the host IP (default: 'localhost')
-- `--port <port>` to specify the agent port (default: 60000)
-- `-n <number>` Player number (1–11) (default: 1)
-- `-t <team_name>` Team name (default: 'Default')
+### Weights & Biases (WandB) - Recomendado
+Os logs e FPS do treino em GPU são sincronizados na nuvem do [wandb.ai](https://wandb.ai).
+1. Faça login no terminal:
+   ```bash
+   wandb login
+   ```
+2. Insira a sua chave de API quando solicitado.
 
+---
 
-### Run a team
-You can also use a shell script to start the entire team, optionally specifying host and port:
+## 4. Visualização do Aprendizado (Enjoy)
 
-```bash
-./start.sh [host] [port]
-```
-
-Using **Hatch**:
-```bash
-hatch run ./start.sh [host] [port]
-```
-
-Using **Poetry**:
-```bash
-poetry run ./start.sh [host] [port]
-```
-
-CLI parameter:
-
-- `[host]` Server IP address (default: 'localhost')
-- `[port]` Server port for agents (default: 60000)
-
-### Binary building
-To compete, a binary is needed. It provides a compact, portable version and protects the source code. To create a binary, just run the script ```build_binary.sh```
+Para visualizar a simulação gráfica do robô aprendendo:
 
 ```bash
-./build_binary.sh <team-name>
+# Visualizar o modelo de FRENTE mais recente
+python3 training/enjoy.py front
+
+# Visualizar o modelo de COSTAS mais recente
+python3 training/enjoy.py back
 ```
 
-Using **Hatch**:
-```bash
-hatch run ./build_binary.sh <team-name>
-```
+---
 
-Using **Poetry**:
-```bash
-poetry run ./build_binary.sh <team-name>
-```
+## 5. Onde ficam os modelos e logs?
 
-Once binary generation is finished, the result will be inside the build folder, as ```<team-name>.tar.gz```
+1. **Modelos Finais (JAX/Brax)**: `training/models/[front_mjx|back_mjx]/`. Salvos no formato `.pkl`.
+2. **Logs de Treinamento**: `training/logs/[front_mjx|back_mjx]/`.
+3. **Ambiente MJX**: `training/getup_env_mjx.py` (contém `GetUpFrontMjxEnv` e `GetUpBackMjxEnv`).
 
-### Brazil Open Mujoco Demo
-In the Brazil Open Mujoco Demo, the adult humanoid field will be used, with 3 players in each team. The ```start3v3.sh``` script can be used for that purpose.
+---
 
-### Authors and acknowledgment
-This project was developed and contributed by:
-- **Alan Nascimento**
-- **Luís Magalhães**
-- **Pedro Rabelo**
-- **Melissa Damasceno**
+## 6. Validação e Arquitetura Técnica
 
-Contributions, bug reports, and feature requests are welcome via pull requests.
+* **Física & Rede em GPU**: Tanto o motor de física do MuJoCo canto a execução do PPO rodam nativamente na GPU usando JAX (`@jax.jit`).
+* **Mimic Reward**: Recompensa de imitação baseada nas fases dos arquivos Keyframe YAML (`get_up_front.yaml` e `get_up_back.yaml`).
+* **Resolução Dinâmica do Torso**: O ID da torso é mapeado dinamicamente para garantir medição precisa de altura e estabilidade.
