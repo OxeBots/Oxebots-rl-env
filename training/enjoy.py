@@ -107,9 +107,12 @@ def enjoy():
                 action = np.random.uniform(-1.0, 1.0, size=(env.mj_model.nu,))
 
             mj_data.ctrl[:] = action
-            mujoco.mj_step(env.mj_model, mj_data)
+            n_substeps = getattr(env, 'n_frames', 5)
+            for _ in range(n_substeps):
+                mujoco.mj_step(env.mj_model, mj_data)
 
-            time_until_next_step = env.mj_model.opt.timestep - (time.time() - step_start)
+            frame_dt = env.mj_model.opt.timestep * n_substeps
+            time_until_next_step = frame_dt - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
 
