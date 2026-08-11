@@ -1,4 +1,8 @@
 import os
+# Evitar pré-alocação agressiva de 90% da VRAM da GPU pelo JAX/XLA no modo de visualização
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".10"
+
 import sys
 import glob
 import time
