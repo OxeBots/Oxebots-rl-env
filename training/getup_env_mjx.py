@@ -216,7 +216,7 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
 
         # Progresso de altura [0.0, 1.0]
         height_progress = jnp.clip((torso_height - 0.15) / (0.65 - 0.15), 0.0, 1.0)
-        height_reward = (height_progress ** 2) * 40.0 * jnp.maximum(0.0, torso_up)
+        height_reward = height_progress * 50.0 + (height_progress ** 2) * 20.0 * jnp.maximum(0.0, torso_up)
 
         # Obter pose alvo interpolada dos keyframes do YAML (Mimic RL)
         target_pose = self.get_target_pose(height_progress)
@@ -224,7 +224,7 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
         joint_error = jnp.mean(jnp.square(actuated_qpos - target_pose))
 
         # Recompensa de acompanhamento de pose dos Keyframes
-        mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-4.0 * joint_error), 0.0)
+        mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-3.0 * joint_error), 0.0)
 
         obs = self._get_obs(pipeline_state, target_pose)
 
@@ -237,7 +237,8 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
         roll_sum = left_j[self._roll_indices] + right_j[self._roll_indices]
         symmetry_penalty = -2.5 * (jnp.mean(jnp.square(pitch_diff)) + jnp.mean(jnp.square(roll_sum)))
 
-        action_penalty = -0.01 * jnp.sum(jnp.square(action))
+        action_penalty = jnp.where(torso_height < 0.45, -0.002 * jnp.sum(jnp.square(action)), -0.01 * jnp.sum(jnp.square(action)))
+        step_penalty = jnp.where(torso_height < 0.45, 0.0, -0.05)
 
         l_knee = pipeline_state.qpos[self._l_knee_idx]
         r_knee = pipeline_state.qpos[self._r_knee_idx]
@@ -317,7 +318,7 @@ class GetUpBackMjxEnv(BaseGetUpMjxEnv):
 
         # Progresso de altura [0.0, 1.0]
         height_progress = jnp.clip((torso_height - 0.15) / (0.65 - 0.15), 0.0, 1.0)
-        height_reward = (height_progress ** 2) * 40.0 * jnp.maximum(0.0, torso_up)
+        height_reward = height_progress * 50.0 + (height_progress ** 2) * 20.0 * jnp.maximum(0.0, torso_up)
 
         # Obter pose alvo interpolada dos keyframes do YAML (Mimic RL)
         target_pose = self.get_target_pose(height_progress)
@@ -325,7 +326,7 @@ class GetUpBackMjxEnv(BaseGetUpMjxEnv):
         joint_error = jnp.mean(jnp.square(actuated_qpos - target_pose))
 
         # Recompensa de acompanhamento de pose dos Keyframes
-        mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-4.0 * joint_error), 0.0)
+        mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-3.0 * joint_error), 0.0)
 
         obs = self._get_obs(pipeline_state, target_pose)
 

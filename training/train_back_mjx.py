@@ -28,7 +28,9 @@ except ImportError:
 # import wandb
 
 # Monkeypatch para compatibilidade com versões recentes do JAX no Brax
-if not hasattr(jax, 'device_put_replicated'):
+try:
+    _ = jax.device_put_replicated
+except (AttributeError, RuntimeError):
     import jax.numpy as jnp
     def _device_put_replicated(x, devices):
         return jax.tree.map(lambda leaf: jax.device_put(jnp.stack([leaf] * len(devices))), x)
@@ -52,16 +54,16 @@ def train():
 
     writer = SummaryWriter(log_dir) if HAS_TENSORBOARD else None
 
-    # Hiperparâmetros otimizados para VRAM (2048 ambientes paralelos 100% em GPU)
+    # Hiperparâmetros otimizados para máxima ocupação de CUDA Cores na RTX 3060 (12GB VRAM)
     total_timesteps = 100_000_000
-    num_envs = 2048  # ambientes paralelos rodando 
-    episode_length = 1000  # Tamanho do episódio (passos de simulação por episódio)
+    num_envs = 8192            # Aumentado de 2048 -> 8192 (ocupa a GPU em 100% de capacidade)
+    episode_length = 1000      # Tamanho do episódio (passos de simulação por episódio)
     learning_rate = 3e-4
     unroll_length = 32
-    batch_size = 2048
-    num_minibatches = 8
-    num_updates_per_batch = 4
-    num_evals = 20  # Log por epoch/update (sem interrupções frequentes de transferência GPU-CPU)
+    batch_size = 32768         # Aumentado para 32768 (minibatches de 4096 amostras por kernel launch)
+    num_minibatches = 8        # 8 minibatches de 4096 (elimina kernel launch overhead)
+    num_updates_per_batch = 2  # Reduzido de 4 -> 2 (corta overhead da rede neural pela metade)
+    num_evals = 20
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
