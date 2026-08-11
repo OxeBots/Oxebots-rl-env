@@ -52,8 +52,7 @@ def enjoy():
 
             ppo_network = ppo_networks.make_ppo_networks(
                 env.observation_size,
-                env.action_size,
-                preprocess_observations_fn=ppo_networks.identity_observation_preprocessor
+                env.action_size
             )
             make_policy = ppo_networks.make_inference_fn(ppo_network)
             jit_inference_fn = jax.jit(make_policy(params))
