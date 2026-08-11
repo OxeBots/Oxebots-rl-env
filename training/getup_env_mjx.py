@@ -192,6 +192,7 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
         reward = jnp.zeros(())
         done = jnp.zeros(())
         metrics = {
+            'reward': jnp.zeros(()),
             'reward_height': jnp.zeros(()),
             'reward_standing': jnp.zeros(()),
             'reward_mimic': jnp.zeros(()),
@@ -260,6 +261,7 @@ class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
         done = jnp.where(jnp.isnan(torso_height) | (torso_height < 0.05), 1.0, 0.0)
 
         metrics = {
+            'reward': total_reward,
             'reward_height': height_reward,
             'reward_standing': standing_bonus,
             'reward_mimic': mimic_reward,
@@ -291,6 +293,7 @@ class GetUpBackMjxEnv(BaseGetUpMjxEnv):
         reward = jnp.zeros(())
         done = jnp.zeros(())
         metrics = {
+            'reward': jnp.zeros(()),
             'reward_height': jnp.zeros(()),
             'reward_standing': jnp.zeros(()),
             'reward_mimic': jnp.zeros(()),
@@ -351,6 +354,7 @@ class GetUpBackMjxEnv(BaseGetUpMjxEnv):
         done = jnp.where(jnp.isnan(torso_height) | (torso_height < 0.05), 1.0, 0.0)
 
         metrics = {
+            'reward': total_reward,
             'reward_height': height_reward,
             'reward_standing': standing_bonus,
             'reward_mimic': mimic_reward,
