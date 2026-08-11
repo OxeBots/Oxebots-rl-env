@@ -18,7 +18,13 @@ try:
 except ImportError:
     HAS_BRAX_TRAIN = False
 
-# WandB desativado conforme solicitado
+try:
+    from tensorboardX import SummaryWriter
+    HAS_TENSORBOARD = True
+except ImportError:
+    HAS_TENSORBOARD = False
+
+# WandB e Renderização de Vídeo desativados para evitar gargalos na GPU/CPU
 # import wandb
 
 # Monkeypatch para compatibilidade com versões recentes do JAX no Brax
@@ -44,21 +50,25 @@ def train():
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
 
-    # Hiperparâmetros otimizados para VRAM da RTX 3060 (2048 ambientes conforme solicitado)
+    writer = SummaryWriter(log_dir) if HAS_TENSORBOARD else None
+
+    # Hiperparâmetros otimizados para VRAM (2048 ambientes paralelos 100% em GPU)
     total_timesteps = 100_000_000
-    num_envs = 2048  # 2048 ambientes paralelos rodando 100% dentro da GPU
+    num_envs = 2048  # Ambientes paralelos rodando 100% dentro da GPU
     learning_rate = 3e-4
     unroll_length = 32
     batch_size = 2048
     num_minibatches = 32
     num_updates_per_batch = 8
-    num_evals = 20  # Log por epoch/update (sem interrupções frequentes da GPU)
+    num_evals = 20  # Log por epoch/update (sem interrupções frequentes de transferência GPU-CPU)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     print(f"🚀 Iniciando treino FRONT 100% na GPU (MJX)...")
     print(f"Ambientes paralelos na VRAM: {num_envs}")
     print(f"Dispositivos JAX detectados: {jax.devices()}")
+    if writer:
+        print(f"📊 Logs do TensorBoard sendo salvos em: {log_dir}")
 
     env = GetUpFrontMjxEnv()
 
@@ -86,6 +96,16 @@ def train():
 
         pbar.set_postfix(postfix)
 
+        # Logar métricas no TensorBoard sem pausar a GPU
+        if writer:
+            for k, v in metrics.items():
+                try:
+                    writer.add_scalar(k, float(v), num_steps)
+                except (ValueError, TypeError):
+                    pass
+            writer.add_scalar("eval/sps", sps, num_steps)
+            writer.flush()
+
     def policy_params_callback(num_steps, make_policy_fn, params):
         pass
 
@@ -107,6 +127,8 @@ def train():
         )
     finally:
         pbar.close()
+        if writer:
+            writer.close()
 
     print(f"✅ Treino FRONT concluído em {(time.time() - start_time)/60:.2f} minutos!")
 
@@ -119,3 +141,4 @@ def train():
 
 if __name__ == "__main__":
     train()
+
