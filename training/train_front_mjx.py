@@ -54,8 +54,8 @@ def train():
 
     writer = SummaryWriter(log_dir) if HAS_TENSORBOARD else None
 
-    # Hiperparâmetros otimizados para máxima velocidade e convergência rápida na RTX 3060
-    total_timesteps = 30_000_000  # 30M de passos é o suficiente para convergência completa (evita 100M desnecessários)
+    # Hiperparâmetros otimizados para máxima velocidade e convergência na RTX 3060
+    total_timesteps = 70_000_000  # Configurado para 70 Milhões de passos conforme solicitado
     num_envs = 2048            # 2048 ambientes (uso de VRAM controlado em ~7.5GB)
     episode_length = 1000      # Tamanho do episódio (passos de simulação por episódio)
     learning_rate = 3e-4
@@ -63,7 +63,7 @@ def train():
     batch_size = 16384         # Batch total por época
     num_minibatches = 4        # 4 minibatches de 4096 amostras (lota CUDA cores por launch)
     num_updates_per_batch = 1  # 1 atualização de PPO por unroll (dobra a velocidade de SPS!)
-    num_evals = 15
+    num_evals = 20
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
