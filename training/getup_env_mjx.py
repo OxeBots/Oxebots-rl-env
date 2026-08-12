@@ -44,24 +44,30 @@ YAML_MAPPING = {
 
 def _load_keyframes_from_yaml(yaml_path):
     if not yaml_path or not os.path.exists(yaml_path):
-        return [], []
+        return jnp.zeros((1, 23))
     with open(yaml_path, 'r') as f:
         data = yaml.safe_load(f)
-    keyframes = []
-    deltas = []
+    kf_targets = []
     for kf in data.get('keyframes', []):
         motors = kf['motor_positions']
-        keyframes.append({name: float(jnp.radians(val)) for name, val in motors.items()})
-        deltas.append(float(kf.get('delta', 1.0)))
-    return keyframes, deltas
+        radians_dict = {name: float(jnp.radians(val)) for name, val in motors.items()}
+        target_vec = {}
+        for y_name, val in radians_dict.items():
+            if y_name in YAML_MAPPING:
+                for j_name, mult in YAML_MAPPING[y_name]:
+                    target_vec[j_name] = float(val * mult)
+        vec = [target_vec.get(j, 0.0) for j in JOINT_NAMES]
+        kf_targets.append(vec)
+    return jnp.array(kf_targets) if len(kf_targets) > 0 else jnp.zeros((1, 23))
 
 
 class BaseGetUpMjxEnv(PipelineEnv):
     """
     Classe Base de Levantamento acelerada 100% em GPU via MuJoCo MJX + Brax.
-    Suporta rastreamento de keyframes do YAML (DeepMimic RL) e vetorização em JAX.
+    Modelo HÍBRIDO: Guia de Poses dos Keyframes YAML (Soft-DeepMimic) + Recompensas Biomecânicas Físicas.
     """
     DEFAULT_YAML_NAME = None
+    DEFAULT_N_FRAMES = 5
 
     def __init__(self, model_path=None, keyframe_yaml=None, **kwargs):
         if not HAS_BRAX:
@@ -87,68 +93,47 @@ class BaseGetUpMjxEnv(PipelineEnv):
         self.mj_model = mujoco.MjModel.from_xml_string(xml_string)
         sys = mjcf.load_model(self.mj_model)
 
-        # Mapeamento de corpos e juntas
+        # Mapeamento de corpos
         try:
             self.torso_id = self.mj_model.body('torso').id
         except KeyError:
             self.torso_id = 1
 
+        try:
+            self.left_foot_id = self.mj_model.body('left_foot_link').id
+        except KeyError:
+            self.left_foot_id = self.torso_id
+        try:
+            self.right_foot_id = self.mj_model.body('right_foot_link').id
+        except KeyError:
+            self.right_foot_id = self.torso_id
+
+        # Mapeamento de juntas
         self._l_knee_idx = self._get_qadr('Left_Knee_Pitch')
         self._r_knee_idx = self._get_qadr('Right_Knee_Pitch')
         self._l_hip_pitch_idx = self._get_qadr('Left_Hip_Pitch')
         self._r_hip_pitch_idx = self._get_qadr('Right_Hip_Pitch')
+        self._l_hip_roll_idx = self._get_qadr('Left_Hip_Roll')
+        self._r_hip_roll_idx = self._get_qadr('Right_Hip_Roll')
         self._waist_idx = self._get_qadr('Waist')
+        self._l_shoulder_pitch_idx = self._get_qadr('Left_Shoulder_Pitch')
+        self._r_shoulder_pitch_idx = self._get_qadr('Right_Shoulder_Pitch')
+        self._l_shoulder_roll_idx = self._get_qadr('Left_Shoulder_Roll')
+        self._r_shoulder_roll_idx = self._get_qadr('Right_Shoulder_Roll')
+        self._l_elbow_pitch_idx = self._get_qadr('Left_Elbow_Pitch')
+        self._r_elbow_pitch_idx = self._get_qadr('Right_Elbow_Pitch')
 
-        self.left_joints_idx = jnp.array([
-            self._get_qadr('Left_Shoulder_Pitch'),
-            self._get_qadr('Left_Shoulder_Roll'),
-            self._get_qadr('Left_Elbow_Pitch'),
-            self._get_qadr('Left_Hip_Pitch'),
-            self._get_qadr('Left_Hip_Roll'),
-            self._get_qadr('Left_Knee_Pitch'),
-            self._get_qadr('Left_Ankle_Pitch'),
-        ])
-        self.right_joints_idx = jnp.array([
-            self._get_qadr('Right_Shoulder_Pitch'),
-            self._get_qadr('Right_Shoulder_Roll'),
-            self._get_qadr('Right_Elbow_Pitch'),
-            self._get_qadr('Right_Hip_Pitch'),
-            self._get_qadr('Right_Hip_Roll'),
-            self._get_qadr('Right_Knee_Pitch'),
-            self._get_qadr('Right_Ankle_Pitch'),
-        ])
-
-        self._pitch_indices = jnp.array([0, 2, 3, 5, 6])
-        self._roll_indices = jnp.array([1, 4])
-        self._leg_pitch_indices = jnp.array([0, 2, 3])
-
-        # Carregar YAML 
+        # Carregar Keyframes do YAML para guiamento híbrido
         if keyframe_yaml is None and self.DEFAULT_YAML_NAME:
-            base_dir = os.path.dirname(__file__)
-            repo_root = os.path.abspath(os.path.join(base_dir, ".."))
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             keyframe_yaml = os.path.join(repo_root, "resources", "skills", "keyframe", "get_up", self.DEFAULT_YAML_NAME)
 
-        self.keyframes, self.keyframe_deltas = _load_keyframes_from_yaml(keyframe_yaml)
-        self._has_mimic = len(self.keyframes) > 0
-        self.n_phases = len(self.keyframes)
+        self.keyframe_targets = _load_keyframes_from_yaml(keyframe_yaml)
+        self.n_phases = len(self.keyframe_targets)
+        self._has_mimic = self.n_phases > 0
 
-        # Construir matriz de alvos de keyframe em JAX (N_phases, 23)
-        kf_targets = []
-        for kf in self.keyframes:
-            target_vec = {}
-            for y_name, val in kf.items():
-                if y_name in YAML_MAPPING:
-                    for j_name, mult in YAML_MAPPING[y_name]:
-                        target_vec[j_name] = float(val * mult)
-            vec = [target_vec.get(j, 0.0) for j in JOINT_NAMES]
-            kf_targets.append(vec)
-
-        if len(kf_targets) > 0:
-            self.keyframe_targets = jnp.array(kf_targets)
-        else:
-            self.keyframe_targets = jnp.zeros((1, 23))
-
-        super().__init__(sys=sys, backend='mjx', n_frames=5, **kwargs)
+        n_frames = kwargs.pop('n_frames', self.DEFAULT_N_FRAMES)
+        super().__init__(sys=sys, backend='mjx', n_frames=n_frames, **kwargs)
 
     def _get_qadr(self, joint_name):
         try:
@@ -157,7 +142,7 @@ class BaseGetUpMjxEnv(PipelineEnv):
             return 0
 
     def get_target_pose(self, progress: jax.Array) -> jax.Array:
-        """Interpolador de pose alvo dos Keyframes do YAML em função do progresso [0, 1]."""
+        """Interpolador suave de pose alvo dos Keyframes em função da fase de altura [0, 1]."""
         if not self._has_mimic or self.n_phases <= 1:
             return self.keyframe_targets[0]
         idx_float = jnp.clip(progress, 0.0, 1.0) * (self.n_phases - 1)
@@ -166,149 +151,300 @@ class BaseGetUpMjxEnv(PipelineEnv):
         alpha = idx_float - idx_low
         return (1.0 - alpha) * self.keyframe_targets[idx_low] + alpha * self.keyframe_targets[idx_high]
 
-    def _get_obs(self, pipeline_state, target_pose: jax.Array = None) -> jax.Array:
-        if target_pose is None:
-            target_pose = jnp.zeros(23)
+    def _get_obs(self, pipeline_state, last_action=None, target_pose=None) -> jax.Array:
+        """
+        Observações enriquecidas HÍBRIDAS:
+        qpos + qvel + torso height + torso up + torso angvel/linvel + foot pos + joint_err + last_action.
+        """
+        torso_height = pipeline_state.x.pos[self.torso_id][2:3]
+        torso_rot = pipeline_state.x.rot[self.torso_id]
+        torso_up = (1.0 - 2.0 * (torso_rot[1]**2 + torso_rot[2]**2)).reshape(1)
+        torso_angvel = pipeline_state.xd.ang[self.torso_id]
+        torso_linvel = pipeline_state.xd.vel[self.torso_id]
+
+        left_foot_pos = pipeline_state.x.pos[self.left_foot_id]
+        right_foot_pos = pipeline_state.x.pos[self.right_foot_id]
+
         actuated_qpos = pipeline_state.qpos[7:30]
-        joint_err = target_pose - actuated_qpos
-        obs = jnp.concatenate([pipeline_state.qpos, pipeline_state.qvel, joint_err])
-        obs = jnp.nan_to_num(obs, nan=0.0, posinf=100.0, neginf=-100.0)
-        return jnp.clip(obs, -100.0, 100.0)
+        if target_pose is None:
+            target_pose = actuated_qpos
+        joint_err_vec = target_pose - actuated_qpos  # Delta para a pose alvo do keyframe (23,)
+
+        if last_action is None:
+            last_action = jnp.zeros(self.sys.nu)
+
+        obs = jnp.concatenate([
+            pipeline_state.qpos,        # 30
+            pipeline_state.qvel,        # 29
+            torso_height,               # 1
+            torso_up,                   # 1
+            torso_angvel,               # 3
+            torso_linvel,               # 3
+            left_foot_pos,              # 3
+            right_foot_pos,             # 3
+            joint_err_vec,              # 23 (Guiamento humano direto!)
+            last_action,                # nu (69)
+        ])
+        return jnp.nan_to_num(obs, nan=0.0, posinf=1e2, neginf=-1e2)
 
 
 class GetUpFrontMjxEnv(BaseGetUpMjxEnv):
-    
+    """
+    Levantamento HÍBRIDO de Frente (Front / Prone).
+    Combina Poses Alvo do Keyframe YAML (Soft DeepMimic) + Recompensas Biomecânicas de Física.
+    """
     DEFAULT_YAML_NAME = "get_up_front.yaml"
 
     def reset(self, rng: jax.Array) -> State:
-        qpos = self.sys.init_q
-        qpos = qpos.at[2].set(0.25)
-        qpos = qpos.at[3].set(0.707)
-        qpos = qpos.at[4].set(0.0)
-        qpos = qpos.at[5].set(0.707)
-        qpos = qpos.at[6].set(0.0)
+        rng, pose_rng, noise_rng, vel_rng = jax.random.split(rng, 4)
+        init_qpos = self.sys.init_q
 
-        qvel = jnp.zeros(self.sys.nv)
+        # 1. Pose deitado de bruços (Front)
+        qpos_front = init_qpos.at[2].set(0.22)
+        qpos_front = qpos_front.at[3].set(0.707)
+        qpos_front = qpos_front.at[4].set(0.707)
+        qpos_front = qpos_front.at[5].set(0.0)
+        qpos_front = qpos_front.at[6].set(0.0)
+
+        # 2. Pose intermediária baseada no Keyframe 2 do YAML (Ajoelhado/Crouch)
+        qpos_crouch = init_qpos.at[2].set(0.42)
+        qpos_crouch = qpos_crouch.at[3].set(0.924)
+        qpos_crouch = qpos_crouch.at[4].set(0.383)
+        qpos_crouch = qpos_crouch.at[5].set(0.0)
+        qpos_crouch = qpos_crouch.at[6].set(0.0)
+        if self._has_mimic and self.n_phases >= 3:
+            kf2 = self.keyframe_targets[2]
+            qpos_crouch = qpos_crouch.at[7:30].set(kf2)
+
+        # 3. Pose quase de pé baseada no Keyframe final do YAML
+        qpos_stand = init_qpos.at[2].set(0.60)
+        qpos_stand = qpos_stand.at[3].set(1.0)
+        qpos_stand = qpos_stand.at[4].set(0.0)
+        qpos_stand = qpos_stand.at[5].set(0.0)
+        qpos_stand = qpos_stand.at[6].set(0.0)
+        if self._has_mimic and self.n_phases >= 4:
+            kf_last = self.keyframe_targets[-1]
+            qpos_stand = qpos_stand.at[7:30].set(kf_last)
+
+        # Curriculum de Reset (60% deitado, 25% ajoelhado/keyframe, 15% de pé/keyframe)
+        u = jax.random.uniform(pose_rng)
+        qpos = jnp.where(u < 0.60, qpos_front, jnp.where(u < 0.85, qpos_crouch, qpos_stand))
+
+        # Ruído nas juntas
+        joint_noise = jax.random.uniform(noise_rng, shape=qpos.shape, minval=-0.10, maxval=0.10)
+        root_mask = jnp.concatenate([jnp.zeros(7), jnp.ones(qpos.shape[0] - 7)])
+        qpos = qpos + joint_noise * root_mask
+
+        # Ruído em qvel
+        qvel = jax.random.uniform(vel_rng, shape=(self.sys.nv,), minval=-0.2, maxval=0.2)
+        root_vel_mask = jnp.concatenate([jnp.zeros(6), jnp.ones(self.sys.nv - 6)])
+        qvel = qvel * root_vel_mask
+
         pipeline_state = self.pipeline_init(qpos, qvel)
+        last_action = jnp.zeros(self.sys.nu)
 
+        # Target pose inicial para obs
         target_pose = self.get_target_pose(jnp.array(0.0))
-        obs = self._get_obs(pipeline_state, target_pose)
-        reward = jnp.zeros(())
-        done = jnp.zeros(())
+        obs = self._get_obs(pipeline_state, last_action, target_pose)
+
         metrics = {
             'reward': jnp.zeros(()),
             'reward_height': jnp.zeros(()),
+            'reward_upright': jnp.zeros(()),
+            'reward_velocity': jnp.zeros(()),
             'reward_standing': jnp.zeros(()),
             'reward_mimic': jnp.zeros(()),
-            'joint_error': jnp.zeros(())
+            'joint_error': jnp.zeros(()),
+            'torso_height': jnp.zeros(()),
+            'torso_up': jnp.zeros(()),
         }
 
-        return State(pipeline_state, obs, reward, done, metrics)
+        info = {
+            'last_action': last_action,
+            'standing_count': jnp.zeros(()),
+        }
+
+        return State(pipeline_state, obs, jnp.zeros(()), jnp.zeros(()), metrics, info)
 
     def step(self, state: State, action: jax.Array) -> State:
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
 
+        last_action = state.info.get('last_action', jnp.zeros(self.sys.nu))
+        standing_count = state.info.get('standing_count', jnp.zeros(()))
+
         torso_pos = pipeline_state.x.pos[self.torso_id]
         torso_height = torso_pos[2]
-        
+
         torso_rot = pipeline_state.x.rot[self.torso_id]
         torso_up = 1.0 - 2.0 * (torso_rot[1]**2 + torso_rot[2]**2)
 
-        # Progresso de altura [0.0, 1.0]
-        height_progress = jnp.clip((torso_height - 0.15) / (0.65 - 0.15), 0.0, 1.0)
-        height_reward = height_progress * 50.0 + (height_progress ** 2) * 20.0 * jnp.maximum(0.0, torso_up)
+        # 1. Progresso Vertical Relativo
+        h_ground = 0.24
+        h_target = 0.65
+        h_rel = jnp.clip((torso_height - h_ground) / (h_target - h_ground), 0.0, 1.0)
+        height_reward = (h_rel ** 2.0) * 120.0
 
-        # Obter pose alvo interpolada dos keyframes do YAML (Mimic RL)
-        target_pose = self.get_target_pose(height_progress)
+        # 2. Keyframe Target Pose Suave (Soft DeepMimic RL)
+        target_pose = self.get_target_pose(h_rel)
         actuated_qpos = pipeline_state.qpos[7:30]
-        joint_error = jnp.mean(jnp.square(actuated_qpos - target_pose))
+        joint_err = jnp.mean(jnp.square(actuated_qpos - target_pose))
 
-        # Recompensa de acompanhamento de pose dos Keyframes
-        mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-3.0 * joint_error), 0.0)
+        # Recompensa Gaussiana Suave de Mimic (Nunca Zera! Fornece gradiente contínuo)
+        mimic_reward = 80.0 * jnp.exp(-1.5 * joint_err)
 
-        obs = self._get_obs(pipeline_state, target_pose)
+        # Atualizar Observações Híbridas
+        obs = self._get_obs(pipeline_state, action, target_pose)
 
-        waist_qpos = pipeline_state.qpos[self._waist_idx]
-        waist_penalty = -5.0 * (waist_qpos ** 2)
+        # 3. Orientação Upright
+        upright_pos = jnp.clip((torso_up + 0.2) / 1.2, 0.0, 1.0)
+        upright_reward = (upright_pos ** 2.0) * 60.0
 
-        left_j = pipeline_state.qpos[self.left_joints_idx]
-        right_j = pipeline_state.qpos[self.right_joints_idx]
-        pitch_diff = left_j[self._pitch_indices] - right_j[self._pitch_indices]
-        roll_sum = left_j[self._roll_indices] + right_j[self._roll_indices]
-        symmetry_penalty = -2.5 * (jnp.mean(jnp.square(pitch_diff)) + jnp.mean(jnp.square(roll_sum)))
+        # 4. Velocidade Vertical Positiva
+        torso_vz = pipeline_state.xd.vel[self.torso_id][2]
+        velocity_reward = jnp.clip(torso_vz, 0.0, 2.0) * 40.0
 
-        action_penalty = jnp.where(torso_height < 0.45, -0.002 * jnp.sum(jnp.square(action)), -0.01 * jnp.sum(jnp.square(action)))
-        step_penalty = jnp.where(torso_height < 0.45, 0.0, -0.05)
+        # 5. Sinal de Standing Contínuo
+        standing_signal = h_rel * upright_pos
+        standing_reward = (standing_signal ** 3.0) * 350.0
+
+        # 6. Biomecânica de Bruços
+        l_shoulder = pipeline_state.qpos[self._l_shoulder_pitch_idx]
+        r_shoulder = pipeline_state.qpos[self._r_shoulder_pitch_idx]
+        push_reward = jnp.where(torso_height < 0.40, jnp.clip(l_shoulder + r_shoulder, 0.0, 4.0) * 10.0, 0.0)
 
         l_knee = pipeline_state.qpos[self._l_knee_idx]
         r_knee = pipeline_state.qpos[self._r_knee_idx]
-        l_hip = pipeline_state.qpos[self._l_hip_pitch_idx]
-        r_hip = pipeline_state.qpos[self._r_hip_pitch_idx]
+        tuck_reward = jnp.where(torso_height < 0.50, jnp.clip(l_knee + r_knee, 0.0, 4.0) * 10.0, 0.0)
 
-        tuck_reward = jnp.where(
-            torso_height < 0.45,
-            (-l_knee - r_knee) * 2.0 + (l_hip + r_hip) * 2.0,
-            0.0
+        symmetry_penalty = -2.0 * (jnp.square(l_knee - r_knee) + jnp.square(l_shoulder - r_shoulder))
+
+        # 7. Penalidades
+        action_penalty = -0.001 * jnp.sum(jnp.square(action))
+        action_smooth_penalty = -0.005 * jnp.sum(jnp.square(action - last_action))
+        angvel_penalty = -0.01 * jnp.sum(jnp.square(pipeline_state.xd.ang[self.torso_id]))
+        step_penalty = -0.2
+
+        # 8. Bônus de Sucesso e Estabilidade
+        is_standing = (torso_height > 0.58) & (torso_up > 0.80)
+        standing_bonus = jnp.where(is_standing, 150.0, 0.0)
+
+        standing_count = jnp.where(is_standing, standing_count + 1.0, 0.0)
+        stability_bonus = jnp.where(standing_count >= 10, 250.0, 0.0)
+
+        total_reward = (
+            height_reward + upright_reward + velocity_reward + standing_reward + mimic_reward
+            + push_reward + tuck_reward + symmetry_penalty
+            + action_penalty + action_smooth_penalty + angvel_penalty + step_penalty
+            + standing_bonus + stability_bonus
         )
 
-        step_penalty = -0.05
-
-        standing_bonus = jnp.where(
-            (torso_height > 0.60) & (torso_up > 0.85),
-            30.0,
-            0.0
-        )
-
-        total_reward = height_reward + mimic_reward + waist_penalty + symmetry_penalty + action_penalty + tuck_reward + step_penalty + standing_bonus
-        total_reward = jnp.nan_to_num(total_reward, nan=0.0, posinf=100.0, neginf=-100.0)
-        total_reward = jnp.clip(total_reward, -100.0, 100.0)
-
-        done = jnp.where(jnp.isnan(torso_height) | (torso_height < 0.05), 1.0, 0.0)
+        fell = (torso_height < 0.05) | jnp.isnan(torso_height)
+        done = jnp.where(fell, 1.0, 0.0)
 
         metrics = {
             'reward': total_reward,
             'reward_height': height_reward,
-            'reward_standing': standing_bonus,
+            'reward_upright': upright_reward,
+            'reward_velocity': velocity_reward,
+            'reward_standing': standing_reward + standing_bonus,
             'reward_mimic': mimic_reward,
-            'joint_error': joint_error,
+            'joint_error': joint_err,
+            'torso_height': torso_height,
+            'torso_up': torso_up,
         }
 
+        info = state.info.copy()
+        info['last_action'] = action
+        info['standing_count'] = standing_count
+
         return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=total_reward, done=done, metrics=metrics
+            pipeline_state=pipeline_state, obs=obs, reward=total_reward, done=done, metrics=metrics, info=info
         )
 
 
 class GetUpBackMjxEnv(BaseGetUpMjxEnv):
-    
+    """
+    Levantamento HÍBRIDO de Costas (Back / Supine).
+    Combina Poses Alvo do Keyframe YAML (Soft DeepMimic) + Recompensas Biomecânicas de Física.
+    """
     DEFAULT_YAML_NAME = "get_up_back.yaml"
 
     def reset(self, rng: jax.Array) -> State:
-        qpos = self.sys.init_q
-        qpos = qpos.at[2].set(0.25)
-        qpos = qpos.at[3].set(0.707)
-        qpos = qpos.at[4].set(0.0)
-        qpos = qpos.at[5].set(-0.707)
-        qpos = qpos.at[6].set(0.0)
+        rng, pose_rng, noise_rng, vel_rng = jax.random.split(rng, 4)
+        init_qpos = self.sys.init_q
 
-        qvel = jnp.zeros(self.sys.nv)
+        # 1. Pose deitado de costas (Back)
+        qpos_back = init_qpos.at[2].set(0.22)
+        qpos_back = qpos_back.at[3].set(0.707)
+        qpos_back = qpos_back.at[4].set(0.0)
+        qpos_back = qpos_back.at[5].set(-0.707)
+        qpos_back = qpos_back.at[6].set(0.0)
+
+        # 2. Pose intermediária baseada no Keyframe 2 do YAML
+        qpos_crouch = init_qpos.at[2].set(0.42)
+        qpos_crouch = qpos_crouch.at[3].set(0.924)
+        qpos_crouch = qpos_crouch.at[4].set(-0.383)
+        qpos_crouch = qpos_crouch.at[5].set(0.0)
+        qpos_crouch = qpos_crouch.at[6].set(0.0)
+        if self._has_mimic and self.n_phases >= 2:
+            kf1 = self.keyframe_targets[1]
+            qpos_crouch = qpos_crouch.at[7:30].set(kf1)
+
+        # 3. Pose quase de pé baseada no Keyframe final do YAML
+        qpos_stand = init_qpos.at[2].set(0.60)
+        qpos_stand = qpos_stand.at[3].set(1.0)
+        qpos_stand = qpos_stand.at[4].set(0.0)
+        qpos_stand = qpos_stand.at[5].set(0.0)
+        qpos_stand = qpos_stand.at[6].set(0.0)
+        if self._has_mimic and self.n_phases >= 3:
+            kf_last = self.keyframe_targets[-1]
+            qpos_stand = qpos_stand.at[7:30].set(kf_last)
+
+        # Curriculum de Reset (60% deitado, 25% ajoelhado/keyframe, 15% de pé/keyframe)
+        u = jax.random.uniform(pose_rng)
+        qpos = jnp.where(u < 0.60, qpos_back, jnp.where(u < 0.85, qpos_crouch, qpos_stand))
+
+        # Ruído nas juntas
+        joint_noise = jax.random.uniform(noise_rng, shape=qpos.shape, minval=-0.10, maxval=0.10)
+        root_mask = jnp.concatenate([jnp.zeros(7), jnp.ones(qpos.shape[0] - 7)])
+        qpos = qpos + joint_noise * root_mask
+
+        # Ruído em qvel
+        qvel = jax.random.uniform(vel_rng, shape=(self.sys.nv,), minval=-0.2, maxval=0.2)
+        root_vel_mask = jnp.concatenate([jnp.zeros(6), jnp.ones(self.sys.nv - 6)])
+        qvel = qvel * root_vel_mask
+
         pipeline_state = self.pipeline_init(qpos, qvel)
+        last_action = jnp.zeros(self.sys.nu)
 
+        # Target pose inicial para obs
         target_pose = self.get_target_pose(jnp.array(0.0))
-        obs = self._get_obs(pipeline_state, target_pose)
-        reward = jnp.zeros(())
-        done = jnp.zeros(())
+        obs = self._get_obs(pipeline_state, last_action, target_pose)
+
         metrics = {
             'reward': jnp.zeros(()),
             'reward_height': jnp.zeros(()),
+            'reward_upright': jnp.zeros(()),
+            'reward_velocity': jnp.zeros(()),
             'reward_standing': jnp.zeros(()),
             'reward_mimic': jnp.zeros(()),
-            'joint_error': jnp.zeros(())
+            'joint_error': jnp.zeros(()),
+            'torso_height': jnp.zeros(()),
+            'torso_up': jnp.zeros(()),
         }
 
-        return State(pipeline_state, obs, reward, done, metrics)
+        info = {
+            'last_action': last_action,
+            'standing_count': jnp.zeros(()),
+        }
+
+        return State(pipeline_state, obs, jnp.zeros(()), jnp.zeros(()), metrics, info)
 
     def step(self, state: State, action: jax.Array) -> State:
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
+
+        last_action = state.info.get('last_action', jnp.zeros(self.sys.nu))
+        standing_count = state.info.get('standing_count', jnp.zeros(()))
 
         torso_pos = pipeline_state.x.pos[self.torso_id]
         torso_height = torso_pos[2]
@@ -316,56 +452,93 @@ class GetUpBackMjxEnv(BaseGetUpMjxEnv):
         torso_rot = pipeline_state.x.rot[self.torso_id]
         torso_up = 1.0 - 2.0 * (torso_rot[1]**2 + torso_rot[2]**2)
 
-        # Progresso de altura [0.0, 1.0]
-        height_progress = jnp.clip((torso_height - 0.15) / (0.65 - 0.15), 0.0, 1.0)
-        height_reward = height_progress * 50.0 + (height_progress ** 2) * 20.0 * jnp.maximum(0.0, torso_up)
+        # 1. Progresso Vertical Relativo
+        h_ground = 0.24
+        h_target = 0.65
+        h_rel = jnp.clip((torso_height - h_ground) / (h_target - h_ground), 0.0, 1.0)
+        height_reward = (h_rel ** 2.0) * 120.0
 
-        # Obter pose alvo interpolada dos keyframes do YAML (Mimic RL)
-        target_pose = self.get_target_pose(height_progress)
+        # 2. Keyframe Target Pose Suave (Soft DeepMimic RL)
+        target_pose = self.get_target_pose(h_rel)
         actuated_qpos = pipeline_state.qpos[7:30]
-        joint_error = jnp.mean(jnp.square(actuated_qpos - target_pose))
+        joint_err = jnp.mean(jnp.square(actuated_qpos - target_pose))
 
-        # Recompensa de acompanhamento de pose dos Keyframes
-        mimic_reward = jnp.where(self._has_mimic, 40.0 * jnp.exp(-3.0 * joint_error), 0.0)
+        # Recompensa Gaussiana Suave de Mimic (Nunca Zera! Fornece gradiente contínuo)
+        mimic_reward = 80.0 * jnp.exp(-1.5 * joint_err)
 
-        obs = self._get_obs(pipeline_state, target_pose)
+        # Atualizar Observações Híbridas
+        obs = self._get_obs(pipeline_state, action, target_pose)
 
-        waist_qpos = pipeline_state.qpos[self._waist_idx]
-        waist_penalty = -5.0 * (waist_qpos ** 2)
+        # 3. Orientação Upright
+        upright_pos = jnp.clip((torso_up + 0.2) / 1.2, 0.0, 1.0)
+        upright_reward = (upright_pos ** 2.0) * 60.0
+
+        # 4. Velocidade Vertical Positiva
+        torso_vz = pipeline_state.xd.vel[self.torso_id][2]
+        velocity_reward = jnp.clip(torso_vz, 0.0, 2.0) * 40.0
+
+        # 5. Sinal de Standing Contínuo
+        standing_signal = h_rel * upright_pos
+        standing_reward = (standing_signal ** 3.0) * 350.0
+
+        # 6. Biomecânica de Costas
+        l_shoulder = pipeline_state.qpos[self._l_shoulder_pitch_idx]
+        r_shoulder = pipeline_state.qpos[self._r_shoulder_pitch_idx]
+        push_reward = jnp.where(torso_height < 0.40, jnp.clip(-l_shoulder - r_shoulder, 0.0, 4.0) * 10.0, 0.0)
 
         l_knee = pipeline_state.qpos[self._l_knee_idx]
         r_knee = pipeline_state.qpos[self._r_knee_idx]
-        tuck_reward = jnp.where(torso_height < 0.45, (jnp.abs(l_knee) + jnp.abs(r_knee)) * 2.0, 0.0)
+        tuck_reward = jnp.where(torso_height < 0.40, jnp.clip(l_knee + r_knee, 0.0, 4.0) * 10.0, 0.0)
 
-        left_legs = pipeline_state.qpos[self.left_joints_idx[3:]]
-        right_legs = pipeline_state.qpos[self.right_joints_idx[3:]]
-        leg_pitch_diff = left_legs[self._leg_pitch_indices] - right_legs[self._leg_pitch_indices]
-        leg_roll_sum = left_legs[1] + right_legs[1]
-        leg_symmetry_penalty = -2.5 * (jnp.mean(jnp.square(leg_pitch_diff)) + jnp.square(leg_roll_sum))
-
-        action_penalty = -0.01 * jnp.sum(jnp.square(action))
-        step_penalty = -0.05
-
-        standing_bonus = jnp.where(
-            (torso_height > 0.60) & (torso_up > 0.85),
-            30.0,
+        l_hip = pipeline_state.qpos[self._l_hip_pitch_idx]
+        r_hip = pipeline_state.qpos[self._r_hip_pitch_idx]
+        hip_drive_reward = jnp.where(
+            (torso_height > 0.30) & (torso_height < 0.55),
+            jnp.clip(-l_hip - r_hip, 0.0, 3.0) * 10.0,
             0.0
         )
 
-        total_reward = height_reward + mimic_reward + waist_penalty + tuck_reward + leg_symmetry_penalty + action_penalty + step_penalty + standing_bonus
-        total_reward = jnp.nan_to_num(total_reward, nan=0.0, posinf=100.0, neginf=-100.0)
-        total_reward = jnp.clip(total_reward, -100.0, 100.0)
+        symmetry_penalty = -2.0 * (jnp.square(l_knee - r_knee) + jnp.square(l_shoulder - r_shoulder))
 
-        done = jnp.where(jnp.isnan(torso_height) | (torso_height < 0.05), 1.0, 0.0)
+        # 7. Penalidades
+        action_penalty = -0.001 * jnp.sum(jnp.square(action))
+        action_smooth_penalty = -0.005 * jnp.sum(jnp.square(action - last_action))
+        angvel_penalty = -0.01 * jnp.sum(jnp.square(pipeline_state.xd.ang[self.torso_id]))
+        step_penalty = -0.2
+
+        # 8. Bônus de Sucesso e Estabilidade
+        is_standing = (torso_height > 0.58) & (torso_up > 0.80)
+        standing_bonus = jnp.where(is_standing, 150.0, 0.0)
+
+        standing_count = jnp.where(is_standing, standing_count + 1.0, 0.0)
+        stability_bonus = jnp.where(standing_count >= 10, 250.0, 0.0)
+
+        total_reward = (
+            height_reward + upright_reward + velocity_reward + standing_reward + mimic_reward
+            + push_reward + tuck_reward + hip_drive_reward + symmetry_penalty
+            + action_penalty + action_smooth_penalty + angvel_penalty + step_penalty
+            + standing_bonus + stability_bonus
+        )
+
+        fell = (torso_height < 0.05) | jnp.isnan(torso_height)
+        done = jnp.where(fell, 1.0, 0.0)
 
         metrics = {
             'reward': total_reward,
             'reward_height': height_reward,
-            'reward_standing': standing_bonus,
+            'reward_upright': upright_reward,
+            'reward_velocity': velocity_reward,
+            'reward_standing': standing_reward + standing_bonus,
             'reward_mimic': mimic_reward,
-            'joint_error': joint_error,
+            'joint_error': joint_err,
+            'torso_height': torso_height,
+            'torso_up': torso_up,
         }
 
+        info = state.info.copy()
+        info['last_action'] = action
+        info['standing_count'] = standing_count
+
         return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=total_reward, done=done, metrics=metrics
+            pipeline_state=pipeline_state, obs=obs, reward=total_reward, done=done, metrics=metrics, info=info
         )
