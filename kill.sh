@@ -1,1 +1,0 @@
-pkill -9 -e -f "python3 run_player"

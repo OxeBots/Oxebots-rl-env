@@ -5,3 +5,9 @@ numpy
 tensorboard
 scipy
 pyyaml
+wandb
+moviepy
+jax[cuda12]
+mujoco-mjx
+brax
+

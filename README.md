@@ -1,119 +1,88 @@
-# BahiaRT Mujoco base code
+# OxeBots Training - Guia de Treinamento Especializado (100% GPU / MJX)
 
-This is a Python-based base code developed for the RCSSServerMJ. It was created to simplify the onboarding process for new teams joining the RoboCup 3D Soccer Simulation League using the Mujoco Simulator.
+Este guia descreve o sistema de treinamento ultra-acelerado do robô T1 para a equipe **OxeBots**, focado em manobras de levantar (frente/costas) 100% executadas na GPU via **MuJoCo MJX + Brax (JAX)**.
 
-This code was influenced by the early demonstrations from MagmaOffenburg team of a client for the RCSSServerMJ, and the FCPortugal base code for the SimSpark simulator.
+---
 
-## Installation
+## 1. Dependências e Instalação
 
-### Make sure the following are installed on your system:
-
-- Python ≥ 3.13
- > ⚠️ The project has been tested only with Python 3.13, but it will likely work with other versions as well.
-
-
-- Any Python dependency manager can be used, but **either Hatch or Poetry are recommended**.
-
-- **Poetry ≥ 2.0.0** ([Installation Guide](https://python-poetry.org/docs/#installing-with-pipx))  
-  **or**  
-- **Hatch ≥ 1.9.0** ([Installation Guide](https://hatch.pypa.io/latest/install/))
-
-### Install Dependencies
-The project dependencies are listed inside pyproject.toml
-
-Using **Hatch**:
-```bash
-hatch build
-```
-
-Using **Poetry**:
-```bash
-poetry install
-```
-
-## Instructions
-
-### Run an agent
-After installing the dependencies and setting up the environment, you can launch a player instance:
+Para rodar o treinamento acelerado em GPU, instale as bibliotecas necessárias no ambiente virtual:
 
 ```bash
-python3 run_player.py -n <player-number> -t <team-name>
+pip install -r training/requirements.txt
 ```
 
-Using **Hatch**:
+*(Pacotes principais: `jax[cuda12]`, `mujoco-mjx`, `brax`, `tensorboardX`, `mujoco`, `pyyaml`).*
+
+---
+
+## 2. Estrutura de Treinamento (100% GPU na VRAM)
+
+O treinamento simula **2.048 ambientes paralelos simultaneamente** dentro da memória VRAM da GPU, sem gargalos de CPU/RAM.
+
+### A. Treinar Levantamento de FRENTE (Front)
 ```bash
-hatch run python run_player.py -n <player-number> -t <team-name>
+python3 training/train_front_mjx.py
 ```
 
-Using **Poetry**:
+### B. Treinar Levantamento de COSTAS (Back)
 ```bash
-poetry run python run_player.py -n <player-number> -t <team-name>
+python3 training/train_back_mjx.py
 ```
 
-### Check for Syntax Errors
-Before running the simulation, it is recommended to check your code for syntax errors, especially after making manual changes:
+---
 
-```bash
-python3 -m compileall mujococodebase/
-```
+## 3. Monitoramento em Tempo Real (TensorBoard)
 
-CLI parameter (a usage help is also available):
+Para garantir **zero gargalos na GPU**:
+* **WandB e Renderização de Vídeo por Frame** foram desativados para evitar chamadas de rede e overhead da CPU durante o loop de treino.
+* **TensorBoard** foi configurado para registrar logs assíncronos diretamente na pasta `./training/logs/`.
 
-- `--host <ip>` to specify the host IP (default: 'localhost')
-- `--port <port>` to specify the agent port (default: 60000)
-- `-n <number>` Player number (1–11) (default: 1)
-- `-t <team_name>` Team name (default: 'Default')
+### Como rodar o TensorBoard:
 
-
-### Run a team
-You can also use a shell script to start the entire team, optionally specifying host and port:
-
-```bash
-./start.sh [host] [port]
-```
-
-Using **Hatch**:
-```bash
-hatch run ./start.sh [host] [port]
-```
-
-Using **Poetry**:
-```bash
-poetry run ./start.sh [host] [port]
-```
-
-CLI parameter:
-
-- `[host]` Server IP address (default: 'localhost')
-- `[port]` Server port for agents (default: 60000)
-
-### Binary building
-To compete, a binary is needed. It provides a compact, portable version and protects the source code. To create a binary, just run the script ```build_binary.sh```
+No terminal, execute:
 
 ```bash
-./build_binary.sh <team-name>
+tensorboard --logdir=training/logs
 ```
 
-Using **Hatch**:
+Em seguida, abra o navegador em:
+👉 **[http://localhost:6006](http://localhost:6006)**
+
+No dashboard do TensorBoard você poderá acompanhar em tempo real:
+* `eval/episode_reward`: Recompensa total por episódio.
+* `reward_height`: Evolução do ganho de altura do robô.
+* `reward_standing`: Bônus por posição em pé estável.
+* `reward_mimic`: Recompensa de imitação dos Keyframes do YAML (DeepMimic RL).
+* `joint_error`: Erro quadrático médio em relação às poses do YAML.
+* `eval/sps`: Passos de simulação por segundo (SPS) na GPU.
+
+---
+
+## 4. Visualização do Aprendizado (Enjoy)
+
+Para visualizar a simulação gráfica 3D do robô executando o modelo treinado:
+
 ```bash
-hatch run ./build_binary.sh <team-name>
+# Visualizar o modelo de FRENTE mais recente
+python3 training/enjoy.py front
+
+# Visualizar o modelo de COSTAS mais recente
+python3 training/enjoy.py back
 ```
 
-Using **Poetry**:
-```bash
-poetry run ./build_binary.sh <team-name>
-```
+---
 
-Once binary generation is finished, the result will be inside the build folder, as ```<team-name>.tar.gz```
+## 5. Onde ficam os modelos e logs?
 
-### Brazil Open Mujoco Demo
-In the Brazil Open Mujoco Demo, the adult humanoid field will be used, with 3 players in each team. The ```start3v3.sh``` script can be used for that purpose.
+1. **Modelos Finais (JAX/Brax)**: `training/models/[front_mjx|back_mjx]/`. Salvos no formato `.pkl`.
+2. **Logs do TensorBoard**: `training/logs/[front_mjx|back_mjx]/`.
+3. **Ambiente MJX**: `training/getup_env_mjx.py` (contém `GetUpFrontMjxEnv` e `GetUpBackMjxEnv`).
 
-### Authors and acknowledgment
-This project was developed and contributed by:
-- **Alan Nascimento**
-- **Luís Magalhães**
-- **Pedro Rabelo**
-- **Melissa Damasceno**
+---
 
-Contributions, bug reports, and feature requests are welcome via pull requests.
+## 6. Arquitetura Técnica e Desempenho
+
+* **Física & PPO 100% em GPU**: O motor físico (MJX) e o algoritmo PPO rodam nativamente compilados na GPU (`@jax.jit`).
+* **DeepMimic RL (Keyframes YAML)**: Rastreamento dinâmico de pose em tempo real com interpolação contínua das fases salvas em `get_up_front.yaml` e `get_up_back.yaml`.
+* **Zero Host-Device Sync Overhead**: A comunicação GPU $\to$ CPU ocorre apenas 20 vezes durante todo o treino (epochs de avaliação).

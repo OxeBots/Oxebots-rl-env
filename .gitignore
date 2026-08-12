@@ -1,15 +1,21 @@
-.venv/
-.vscode/
-**/__pycache__/
-poetry.lock
-poetry.toml
-**/*.log
-**/build/
-**/install/
-**/log/
-*.spec
-dist/
-venv/
-training/logs/
-training/checkpoints/
+# Python / Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
 
+# Environments
+.venv/
+venv/
+ENV/
+
+# Training Outputs / Models & Logs
+training/logs/
+training/models/*.pkl
+!training/models/.gitkeep
+wandb/
+
+# IDEs & System
+.idea/
+.vscode/
+*.swp
+.DS_Store
