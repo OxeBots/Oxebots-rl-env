@@ -54,15 +54,15 @@ def train():
 
     writer = SummaryWriter(log_dir) if HAS_TENSORBOARD else None
 
-    # Hiperparâmetros otimizados para máxima ocupação de CUDA Cores na RTX 3060 (12GB VRAM)
+    # Hiperparâmetros otimizados para máxima velocidade na RTX 3060 (12GB VRAM)
     total_timesteps = 100_000_000
-    num_envs = 8192            # Aumentado de 2048 -> 8192 (ocupa a GPU em 100% de capacidade)
+    num_envs = 4096            # 4096 ambientes paralelos (sweet spot perfeito para 12GB VRAM)
     episode_length = 1000      # Tamanho do episódio (passos de simulação por episódio)
     learning_rate = 3e-4
     unroll_length = 32
-    batch_size = 32768         # Aumentado para 32768 (minibatches de 4096 amostras por kernel launch)
-    num_minibatches = 8        # 8 minibatches de 4096 (elimina kernel launch overhead)
-    num_updates_per_batch = 2  # Reduzido de 4 -> 2 (corta overhead da rede neural pela metade)
+    batch_size = 16384         # Minibatches de 2048 amostras por kernel launch
+    num_minibatches = 8        # 8 minibatches de 2048 (elimina overhead de GPU)
+    num_updates_per_batch = 2  # Reduzido de 4 -> 2 (corta o tempo de rede neural pela metade)
     num_evals = 20
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
