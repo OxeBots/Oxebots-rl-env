@@ -58,12 +58,16 @@ def enjoy():
                 env.action_size
             )
             make_policy = ppo_networks.make_inference_fn(ppo_network)
+<<<<<<< HEAD
             if isinstance(params, tuple) and len(params) == 2:
                 inference_params = (params[0], params[1].policy)
             else:
                 inference_params = params
 
             jit_inference_fn = jax.jit(make_policy(inference_params))            
+=======
+            jit_inference_fn = jax.jit(make_policy(params))
+>>>>>>> 765742fdb183be6d49a4757e8e1aa630a7cc8ec6
             policy = lambda obs, key: jit_inference_fn(obs, key)[0]
             print("🧠 Rede neural da política carregada para inferência!")
         except Exception as e:
@@ -106,6 +110,7 @@ def enjoy():
             # Atualiza pose e velocidade no visualizador 3D do MuJoCo
             mj_data.qpos[:] = np.array(state.pipeline_state.qpos)
             mj_data.qvel[:] = np.array(state.pipeline_state.qvel)
+<<<<<<< HEAD
             if np.isnan(mj_data.qpos).any():
                 print("Reiniciando ambiente...")
                 is_done = True
@@ -115,6 +120,14 @@ def enjoy():
 
             # Reinicia se o episódio terminar ou atingir o limite de tempo
             if is_done:
+=======
+            mujoco.mj_forward(env.mj_model, mj_data)
+
+            # Reinicia se o episódio terminar ou atingir o limite de tempo
+            is_done = bool(np.array(state.done) > 0.5) or step_count >= max_steps_per_episode
+            if is_done:
+                print("🔄 Reiniciando episódio...")
+>>>>>>> 765742fdb183be6d49a4757e8e1aa630a7cc8ec6
                 rng, reset_rng = jax.random.split(rng)
                 state = jit_reset(reset_rng)
                 step_count = 0
