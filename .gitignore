@@ -10,6 +10,10 @@ poetry.toml
 *.spec
 dist/
 venv/
+venv_wsl/
+*venv*/
+.env
+.env.*
 training/logs/
 training/models/
 training/checkpoints/

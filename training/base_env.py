@@ -32,6 +32,8 @@ class BaseRobotEnv(gym.Env):
             home = os.path.expanduser("~")
             current_dir = os.path.dirname(os.path.abspath(__file__))
             candidates = [
+                os.path.abspath(os.path.join(current_dir, "..", "robots", "T1", "robot.xml")),
+                os.path.abspath(os.path.join(current_dir, "..", "resources", "robots", "T1", "robot.xml")),
                 os.path.abspath(os.path.join(current_dir, "..", "..", "mojucco_simulator3D", "src", "rcsssmj", "resources", "robots", "T1", "robot.xml")),
                 os.path.abspath(os.path.join(current_dir, "..", "mojucco_simulator3D", "src", "rcsssmj", "resources", "robots", "T1", "robot.xml")),
                 os.path.join(home, "rcssservermj", "src", "rcsssmj", "resources", "robots", "T1", "robot.xml"),

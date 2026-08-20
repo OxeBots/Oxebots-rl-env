@@ -52,11 +52,12 @@ def train():
 
     # Hiperparâmetros
     learning_rate = 3e-4
-    n_steps = 4096
+    n_steps = 2048
     batch_size = 128
     n_epochs = 10
-    gamma = 0.99
-    total_timesteps = 100_000_000
+    gamma = 0.97
+    ent_coef = 0.005
+    total_timesteps = 70_000_000
 
 
     # Configuração de Hiperparâmetros para o WandB
@@ -68,6 +69,7 @@ def train():
         "batch_size": batch_size,
         "n_epochs": n_epochs,
         "gamma": gamma,
+        "ent_coef": ent_coef,
         "n_envs": num_cpu,
     }
 
@@ -141,6 +143,7 @@ def train():
         batch_size=batch_size,
         n_epochs=n_epochs,
         gamma=gamma,
+        ent_coef=ent_coef,
         tensorboard_log=log_dir,
         device="auto"
     )
